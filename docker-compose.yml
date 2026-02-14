@@ -31,11 +31,39 @@ services:
       JENKINS_USER: ${CP_JENKINS_USER:-admin}
       JENKINS_API_TOKEN: ${CP_JENKINS_API_TOKEN:-admin}
       DATABASE_URL: ${CP_DATABASE_URL:-sqlite:////data/control_plane.db}
-      NODE_AGENT_URL: ${CP_NODE_AGENT_URL:-http://node-agent:9000}
+      NODE_AGENT_URL: ${CP_NODE_AGENT_URL:-http://fake-node-agent:9000}
       NODE_AGENT_AUTH_TOKEN: ${CP_NODE_AGENT_AUTH_TOKEN:-}
-      DISABLE_BACKGROUND_LOOPS: ${CP_DISABLE_BACKGROUND_LOOPS:-true}
+      DISABLE_BACKGROUND_LOOPS: ${CP_DISABLE_BACKGROUND_LOOPS:-false}
+      ALLOW_UNKNOWN_HOST_REGISTRATION: ${CP_ALLOW_UNKNOWN_HOST_REGISTRATION:-true}
     volumes:
       - control_plane_data:/data
+    networks:
+      - jenkins_dev_net
+
+  fake-node-agent:
+    build:
+      context: .
+      dockerfile: control_plane/Dockerfile
+    container_name: fake-node-agent-dev
+    restart: unless-stopped
+    depends_on:
+      - control-plane
+    ports:
+      - "9000:9000"
+    command: ["uvicorn", "fake_node_agent.app:app", "--host", "0.0.0.0", "--port", "9000"]
+    environment:
+      FAKE_NODE_AGENT_HOST_ID: ${FAKE_NODE_AGENT_HOST_ID:-fake-host-1}
+      FAKE_NODE_AGENT_CONTROL_PLANE_URL: ${FAKE_NODE_AGENT_CONTROL_PLANE_URL:-http://control-plane:8000}
+      FAKE_NODE_AGENT_BOOTSTRAP_TOKEN: ${FAKE_NODE_AGENT_BOOTSTRAP_TOKEN:-fake-bootstrap-token}
+      FAKE_NODE_AGENT_OS_FAMILY: ${FAKE_NODE_AGENT_OS_FAMILY:-linux}
+      FAKE_NODE_AGENT_OS_VERSION: ${FAKE_NODE_AGENT_OS_VERSION:-dev}
+      FAKE_NODE_AGENT_SELECTED_ACCEL: ${FAKE_NODE_AGENT_SELECTED_ACCEL:-kvm}
+      FAKE_NODE_AGENT_SUPPORTED_ACCELS_CSV: ${FAKE_NODE_AGENT_SUPPORTED_ACCELS_CSV:-kvm,tcg}
+      FAKE_NODE_AGENT_ENABLE_HEARTBEAT_WORKER: ${FAKE_NODE_AGENT_ENABLE_HEARTBEAT_WORKER:-true}
+      FAKE_NODE_AGENT_HEARTBEAT_INTERVAL_SEC: ${FAKE_NODE_AGENT_HEARTBEAT_INTERVAL_SEC:-5}
+      FAKE_NODE_AGENT_CPU_TOTAL: ${FAKE_NODE_AGENT_CPU_TOTAL:-8}
+      FAKE_NODE_AGENT_RAM_TOTAL_MB: ${FAKE_NODE_AGENT_RAM_TOTAL_MB:-16384}
+      FAKE_NODE_AGENT_IO_PRESSURE: ${FAKE_NODE_AGENT_IO_PRESSURE:-0.0}
     networks:
       - jenkins_dev_net
 

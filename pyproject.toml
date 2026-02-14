@@ -25,7 +25,7 @@ dev = [
 testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
-include = ["control_plane*", "node_agent*"]
+include = ["control_plane*", "node_agent*", "fake_node_agent*"]
 
 [tool.setuptools.package-data]
 control_plane = ["static/*.css", "static/*.js", "migrations/*.sql"]

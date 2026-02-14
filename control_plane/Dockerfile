@@ -7,6 +7,8 @@ WORKDIR /app
 
 COPY pyproject.toml /app/pyproject.toml
 COPY control_plane /app/control_plane
+COPY node_agent /app/node_agent
+COPY fake_node_agent /app/fake_node_agent
 
 RUN pip install --no-cache-dir .
 

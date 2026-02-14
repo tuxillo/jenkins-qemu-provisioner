@@ -10,6 +10,7 @@ from control_plane.models import Host
 
 
 os.environ["DISABLE_BACKGROUND_LOOPS"] = "true"
+os.environ["ALLOW_UNKNOWN_HOST_REGISTRATION"] = "true"
 get_settings.cache_clear()
 
 from control_plane.main import app  # noqa: E402
@@ -169,3 +170,26 @@ def test_heartbeat_rejects_accel_mismatch():
         },
     )
     assert hb.status_code == 400
+
+
+def test_register_unknown_host_allowed_in_dev_mode():
+    client = TestClient(app)
+    reg = client.post(
+        "/v1/hosts/auto-host/register",
+        headers={"Authorization": "Bearer auto-bootstrap"},
+        json={
+            "agent_version": "fake-0.1.0",
+            "qemu_version": "fake",
+            "cpu_total": 8,
+            "ram_total_mb": 16384,
+            "base_image_ids": ["fake-base"],
+            "addr": "fake:9000",
+            "os_family": "linux",
+            "os_version": "dev",
+            "qemu_binary": "fake-qemu",
+            "supported_accels": ["kvm", "tcg"],
+            "selected_accel": "kvm",
+        },
+    )
+    assert reg.status_code == 200
+    assert reg.json()["host_id"] == "auto-host"

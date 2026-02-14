@@ -36,10 +36,15 @@ docker compose up -d --build
 - Control-plane health: `http://localhost:8000/healthz`
 - Control-plane metrics: `http://localhost:8000/metrics`
 - Control-plane UI: `http://localhost:8000/ui`
+- Fake node-agent health: `http://localhost:9000/healthz`
 
 UI note:
 - `/ui` is read-only and renders from a server-embedded snapshot.
 - It does not query control-plane APIs from the browser.
+
+Local E2E note:
+- Compose includes `fake-node-agent` by default for local loop testing.
+- Control-plane loops are enabled by default and point to fake node-agent (`CP_NODE_AGENT_URL`).
 
 ## Control-plane development
 
@@ -58,6 +63,7 @@ make test
 - UI contract and scope: `docs/ui-dashboard.md`
 - Node-agent contract: `docs/node-agent-contract.md`
 - Node-agent runbook: `docs/node-agent-runbook.md`
+- Fake local E2E contract: `docs/fake-node-agent-e2e.md`
 
 ## Task tracking
 

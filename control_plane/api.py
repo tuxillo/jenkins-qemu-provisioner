@@ -146,10 +146,25 @@ def register_host(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> RegisterHostResponse:
+    settings = get_settings()
     token = _bearer_token(authorization)
     host = db.get(Host, host_id)
     if host is None:
-        raise HTTPException(status_code=404, detail="unknown host")
+        if not settings.allow_unknown_host_registration:
+            raise HTTPException(status_code=404, detail="unknown host")
+        from control_plane.auth import hash_token
+
+        host = Host(
+            host_id=host_id,
+            enabled=True,
+            bootstrap_token_hash=hash_token(token),
+            cpu_total=req.cpu_total,
+            cpu_free=req.cpu_total,
+            ram_total_mb=req.ram_total_mb,
+            ram_free_mb=req.ram_total_mb,
+        )
+        db.add(host)
+        db.flush()
     if not secure_compare_token(token, host.bootstrap_token_hash):
         raise HTTPException(status_code=401, detail="invalid bootstrap token")
 

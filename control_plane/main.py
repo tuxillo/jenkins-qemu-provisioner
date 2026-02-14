@@ -11,6 +11,7 @@ from control_plane.db import configure_sqlite_runtime, engine
 from control_plane.logging_config import configure_logging
 from control_plane.loops import start_loops
 from control_plane.models import Base
+from control_plane.scripts.init_db import apply_migrations
 
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ def startup() -> None:
         raise RuntimeError("JENKINS_URL is required")
 
     configure_sqlite_runtime()
+    apply_migrations()
     Base.metadata.create_all(bind=engine)
 
     if not settings.disable_background_loops:
