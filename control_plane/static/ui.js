@@ -1,4 +1,6 @@
 (function () {
+  const AUTO_REFRESH_KEY = "cp.ui.autoRefreshSec";
+  const AUTO_REFRESH_VALUES = new Set(["0", "5", "10", "30"]);
   const root = document.getElementById("app");
   const snapshotNode = document.getElementById("cp-snapshot");
   if (!root || !snapshotNode) {
@@ -169,16 +171,44 @@
   }
 
   let timer = null;
+
+  function readStoredAutoRefreshSec() {
+    try {
+      const value = window.localStorage.getItem(AUTO_REFRESH_KEY);
+      if (value && AUTO_REFRESH_VALUES.has(value)) {
+        return value;
+      }
+    } catch (_err) {
+      return "0";
+    }
+    return "0";
+  }
+
+  function writeStoredAutoRefreshSec(value) {
+    try {
+      window.localStorage.setItem(AUTO_REFRESH_KEY, value);
+    } catch (_err) {
+      // ignore storage failures
+    }
+  }
+
+  function applyAutoRefresh(seconds) {
+    if (timer) {
+      window.clearInterval(timer);
+      timer = null;
+    }
+    if (seconds > 0) {
+      timer = window.setInterval(() => window.location.reload(), seconds * 1000);
+    }
+  }
+
   if (autoRefresh) {
+    autoRefresh.value = readStoredAutoRefreshSec();
+    applyAutoRefresh(Number(autoRefresh.value || 0));
+
     autoRefresh.addEventListener("change", () => {
-      if (timer) {
-        window.clearInterval(timer);
-        timer = null;
-      }
-      const sec = Number(autoRefresh.value || 0);
-      if (sec > 0) {
-        timer = window.setInterval(() => window.location.reload(), sec * 1000);
-      }
+      writeStoredAutoRefreshSec(autoRefresh.value || "0");
+      applyAutoRefresh(Number(autoRefresh.value || 0));
     });
   }
 })();

@@ -28,6 +28,7 @@ from control_plane.schemas import (
 
 
 router = APIRouter()
+NOISY_EVENT_TYPES = {"host.heartbeat"}
 
 
 def get_db():
@@ -51,7 +52,10 @@ def _to_iso(value: datetime | None) -> str | None:
 def _build_snapshot(db: Session) -> dict:
     hosts = list(db.scalars(select(Host).order_by(Host.host_id.asc())))
     leases = list(db.scalars(select(Lease).order_by(Lease.created_at.desc())))
-    events = list(db.scalars(select(Event).order_by(Event.id.desc()).limit(50)))
+    raw_events = list(db.scalars(select(Event).order_by(Event.id.desc()).limit(250)))
+    events = [
+        event for event in raw_events if event.event_type not in NOISY_EVENT_TYPES
+    ][:50]
 
     leases_by_state: dict[str, int] = {}
     for lease in leases:
