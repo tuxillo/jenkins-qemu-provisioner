@@ -15,6 +15,7 @@ services:
       JENKINS_BOOTSTRAP_JOB_TIMEOUT_SEC: ${JENKINS_BOOTSTRAP_JOB_TIMEOUT_SEC:-10}
       JENKINS_BOOTSTRAP_JOB_SLEEP_SEC: ${JENKINS_BOOTSTRAP_JOB_SLEEP_SEC:-60}
       JENKINS_BOOTSTRAP_JOB_UPSERT: ${JENKINS_BOOTSTRAP_JOB_UPSERT:-true}
+      JENKINS_CONTROL_PLANE_UI_URL: ${JENKINS_CONTROL_PLANE_UI_URL:-http://localhost:8000/ui}
       JAVA_OPTS: -Djenkins.install.runSetupWizard=false
     volumes:
       - jenkins_home:/var/jenkins_home
