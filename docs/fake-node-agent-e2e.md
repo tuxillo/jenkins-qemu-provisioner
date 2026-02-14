@@ -6,6 +6,7 @@ This defines the fake node-agent used for local control-plane loop testing.
 
 - Allow local end-to-end scaler/provisioner/reconciler loops without real QEMU hosts.
 - Keep behavior deterministic and read/write safe for development.
+- Exercise create/teardown behavior quickly with a seeded Jenkins fake pipeline job that has a low timeout (default `10s`).
 
 ## API behavior
 

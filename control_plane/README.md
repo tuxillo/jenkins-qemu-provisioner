@@ -19,6 +19,8 @@
 
 Notes:
 - Compose includes a `fake-node-agent` service and enables control-plane loops by default for local E2E behavior.
+- Jenkins seeds a fake pipeline job with a short timeout (`10s` default) to trigger queue/provision/reconcile flows quickly.
+- Control-plane connect deadline is tuned low (`10s`) in compose for fast recycle of never-connected leases.
 - Control-plane stores SQLite data in the `control_plane_data` volume at `/data/control_plane.db`.
 - UI is read-only and uses a server-embedded snapshot (no browser API polling).
 
