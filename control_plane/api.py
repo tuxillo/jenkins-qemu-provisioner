@@ -162,6 +162,11 @@ def register_host(
     host.cpu_free = req.cpu_total
     host.ram_total_mb = req.ram_total_mb
     host.ram_free_mb = req.ram_total_mb
+    host.os_family = req.os_family
+    host.os_version = req.os_version
+    host.qemu_binary = req.qemu_binary
+    host.supported_accels = json.dumps(req.supported_accels)
+    host.selected_accel = req.selected_accel
     host.last_seen = now_utc()
     db.add(host)
     write_event(
@@ -199,7 +204,22 @@ def heartbeat(
     if not secure_compare_token(token, host.session_token_hash):
         raise HTTPException(status_code=401, detail="invalid session token")
 
+    if (
+        req.selected_accel
+        and req.supported_accels
+        and req.selected_accel not in req.supported_accels
+    ):
+        raise HTTPException(
+            status_code=400, detail="selected_accel not supported by host"
+        )
+
     update_host_heartbeat(db, host, req.cpu_free, req.ram_free_mb, req.io_pressure)
+    host.os_family = req.os_family or host.os_family
+    host.os_version = req.os_version or host.os_version
+    host.qemu_binary = req.qemu_binary or host.qemu_binary
+    host.selected_accel = req.selected_accel or host.selected_accel
+    if req.supported_accels:
+        host.supported_accels = json.dumps(req.supported_accels)
     write_event(
         db, "host.heartbeat", {"host_id": host_id, "running_vm_ids": req.running_vm_ids}
     )

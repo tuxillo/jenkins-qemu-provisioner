@@ -1,0 +1,30 @@
+#!/bin/sh
+# PROVIDE: jenkins_qemu_node_agent
+# REQUIRE: NETWORKING
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="jenkins_qemu_node_agent"
+rcvar=jenkins_qemu_node_agent_enable
+
+command="/opt/jenkins-qemu-node-agent/venv/bin/uvicorn"
+command_args="node_agent.main:app --host 0.0.0.0 --port 9000"
+pidfile="/var/run/${name}.pid"
+procname="${command}"
+
+required_files="/etc/jenkins-qemu-node-agent/env"
+
+start_precmd="${name}_prestart"
+
+jenkins_qemu_node_agent_prestart()
+{
+    set -a
+    . /etc/jenkins-qemu-node-agent/env
+    set +a
+}
+
+load_rc_config $name
+: ${jenkins_qemu_node_agent_enable:=NO}
+
+run_rc_command "$1"

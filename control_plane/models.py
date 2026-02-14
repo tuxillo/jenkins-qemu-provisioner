@@ -65,6 +65,12 @@ class Host(Base):
     session_token_hash: Mapped[str | None] = mapped_column(String(256))
     session_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
 
+    os_family: Mapped[str | None] = mapped_column(String(64))
+    os_version: Mapped[str | None] = mapped_column(String(128))
+    qemu_binary: Mapped[str | None] = mapped_column(String(256))
+    supported_accels: Mapped[str | None] = mapped_column(Text)
+    selected_accel: Mapped[str | None] = mapped_column(String(32))
+
     cpu_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cpu_free: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     ram_total_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

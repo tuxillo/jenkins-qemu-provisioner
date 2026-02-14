@@ -10,6 +10,11 @@ class RegisterHostRequest(BaseModel):
     ram_total_mb: int = Field(ge=256)
     base_image_ids: list[str] = Field(default_factory=list)
     addr: str
+    os_family: str | None = None
+    os_version: str | None = None
+    qemu_binary: str | None = None
+    supported_accels: list[str] = Field(default_factory=list)
+    selected_accel: str | None = None
 
 
 class RegisterHostResponse(BaseModel):
@@ -25,6 +30,11 @@ class HeartbeatRequest(BaseModel):
     ram_free_mb: int = Field(ge=0)
     io_pressure: float = Field(ge=0.0)
     running_vm_ids: list[str] = Field(default_factory=list)
+    os_family: str | None = None
+    os_version: str | None = None
+    qemu_binary: str | None = None
+    supported_accels: list[str] = Field(default_factory=list)
+    selected_accel: str | None = None
 
 
 class VMStatusRequest(BaseModel):

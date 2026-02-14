@@ -54,6 +54,11 @@ def test_host_register_and_heartbeat():
             "ram_total_mb": 32768,
             "base_image_ids": ["base-a"],
             "addr": "10.0.0.10",
+            "os_family": "linux",
+            "os_version": "6.8",
+            "qemu_binary": "/usr/bin/qemu-system-x86_64",
+            "supported_accels": ["kvm", "tcg"],
+            "selected_accel": "kvm",
         },
     )
     assert reg.status_code == 200
@@ -128,3 +133,39 @@ def test_disable_then_enable_host():
     assert r1.status_code == 200
     r2 = client.post("/v1/hosts/host-c/enable")
     assert r2.status_code == 200
+
+
+def test_heartbeat_rejects_accel_mismatch():
+    db = SessionLocal()
+    db.add(
+        Host(
+            host_id="host-d",
+            enabled=True,
+            bootstrap_token_hash=hash_token("boot"),
+            session_token_hash=hash_token("session"),
+            session_expires_at=(datetime.now(UTC) + timedelta(hours=1)).replace(
+                tzinfo=None
+            ),
+            cpu_total=8,
+            cpu_free=8,
+            ram_total_mb=16384,
+            ram_free_mb=16384,
+        )
+    )
+    db.commit()
+    db.close()
+
+    client = TestClient(app)
+    hb = client.post(
+        "/v1/hosts/host-d/heartbeat",
+        headers={"Authorization": "Bearer session"},
+        json={
+            "cpu_free": 6,
+            "ram_free_mb": 12000,
+            "io_pressure": 0.2,
+            "running_vm_ids": [],
+            "supported_accels": ["kvm"],
+            "selected_accel": "nvmm",
+        },
+    )
+    assert hb.status_code == 400

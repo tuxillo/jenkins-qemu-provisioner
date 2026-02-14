@@ -56,6 +56,8 @@ make test
 - Operations notes: `docs/control-plane-operations.md`
 - MVP checklist: `docs/mvp-acceptance-checklist.md`
 - UI contract and scope: `docs/ui-dashboard.md`
+- Node-agent contract: `docs/node-agent-contract.md`
+- Node-agent runbook: `docs/node-agent-runbook.md`
 
 ## Task tracking
 

@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -30,6 +31,43 @@ def _host_schedulable(host: Host) -> bool:
     )
 
 
+def _label_requirements(label: str) -> tuple[str | None, str | None]:
+    lowered = label.lower()
+    required_accel = None
+    required_os = None
+    if "nvmm" in lowered:
+        required_accel = "nvmm"
+    elif "kvm" in lowered:
+        required_accel = "kvm"
+
+    if "dragonflybsd" in lowered or "dfly" in lowered:
+        required_os = "dragonflybsd"
+    elif "linux" in lowered:
+        required_os = "linux"
+    return required_accel, required_os
+
+
+def _host_meets_capability(host: Host, label: str) -> bool:
+    required_accel, required_os = _label_requirements(label)
+
+    supported: list[str] = []
+    if host.supported_accels:
+        try:
+            parsed = json.loads(host.supported_accels)
+            if isinstance(parsed, list):
+                supported = [str(x) for x in parsed]
+        except json.JSONDecodeError:
+            supported = []
+
+    if host.selected_accel and supported and host.selected_accel not in supported:
+        return False
+    if required_accel and host.selected_accel and host.selected_accel != required_accel:
+        return False
+    if required_os and host.os_family and (host.os_family or "").lower() != required_os:
+        return False
+    return True
+
+
 def _eligible_hosts(label: str, hosts: list[Host]) -> list[Host]:
     profile_name = choose_profile(label)
     profile = NODE_PROFILES[profile_name]
@@ -37,6 +75,7 @@ def _eligible_hosts(label: str, hosts: list[Host]) -> list[Host]:
         h
         for h in hosts
         if _host_schedulable(h)
+        and _host_meets_capability(h, label)
         and h.cpu_free >= profile["vcpu"]
         and h.ram_free_mb >= profile["ram_mb"]
     ]

@@ -1,0 +1,17 @@
+[Unit]
+Description=Jenkins QEMU Node Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jenkins-qemu-agent
+Group=jenkins-qemu-agent
+EnvironmentFile=/etc/jenkins-qemu-node-agent/env
+WorkingDirectory=/opt/jenkins-qemu-node-agent
+ExecStart=/opt/jenkins-qemu-node-agent/venv/bin/uvicorn node_agent.main:app --host 0.0.0.0 --port 9000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

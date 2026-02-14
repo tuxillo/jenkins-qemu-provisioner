@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -23,7 +24,11 @@ def apply_migrations() -> None:
             version = migration.stem
             if version in applied:
                 continue
-            raw.executescript(migration.read_text(encoding="utf-8"))
+            try:
+                raw.executescript(migration.read_text(encoding="utf-8"))
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc):
+                    raise
             raw.execute(
                 "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
                 (version, datetime.now(UTC).replace(tzinfo=None).isoformat()),
