@@ -14,10 +14,12 @@
 - Verify Jenkins: `http://localhost:8080`
 - Verify control-plane health: `http://localhost:8000/healthz`
 - Verify control-plane metrics: `http://localhost:8000/metrics`
+- Open control-plane UI: `http://localhost:8000/ui`
 
 Notes:
 - Compose defaults control-plane to `DISABLE_BACKGROUND_LOOPS=true` so startup does not require a node-agent.
 - Control-plane stores SQLite data in the `control_plane_data` volume at `/data/control_plane.db`.
+- UI is read-only and uses a server-embedded snapshot (no browser API polling).
 
 ## Environment Variables
 

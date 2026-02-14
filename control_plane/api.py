@@ -1,13 +1,16 @@
+import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import HTMLResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from control_plane.auth import new_session_token, secure_compare_token
 from control_plane.config import get_settings
 from control_plane.db import SessionLocal
 from control_plane.metrics import metrics
-from control_plane.models import Host, Lease, LeaseState
+from control_plane.models import Event, Host, Lease, LeaseState
 from control_plane.repositories import (
     list_leases,
     now_utc,
@@ -41,6 +44,70 @@ def _bearer_token(authorization: str | None) -> str:
     return authorization.split(" ", 1)[1]
 
 
+def _to_iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _build_snapshot(db: Session) -> dict:
+    hosts = list(db.scalars(select(Host).order_by(Host.host_id.asc())))
+    leases = list(db.scalars(select(Lease).order_by(Lease.created_at.desc())))
+    events = list(db.scalars(select(Event).order_by(Event.id.desc()).limit(50)))
+
+    leases_by_state: dict[str, int] = {}
+    for lease in leases:
+        leases_by_state[lease.state] = leases_by_state.get(lease.state, 0) + 1
+
+    return {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "counts": {
+            "hosts_total": len(hosts),
+            "leases_total": len(leases),
+            "events_total": len(events),
+            "leases_by_state": leases_by_state,
+        },
+        "hosts": [
+            {
+                "host_id": h.host_id,
+                "enabled": h.enabled,
+                "last_seen": _to_iso(h.last_seen),
+                "cpu_total": h.cpu_total,
+                "cpu_free": h.cpu_free,
+                "ram_total_mb": h.ram_total_mb,
+                "ram_free_mb": h.ram_free_mb,
+                "io_pressure": h.io_pressure,
+            }
+            for h in hosts
+        ],
+        "leases": [
+            {
+                "lease_id": l.lease_id,
+                "vm_id": l.vm_id,
+                "label": l.label,
+                "jenkins_node": l.jenkins_node,
+                "state": l.state,
+                "host_id": l.host_id,
+                "created_at": _to_iso(l.created_at),
+                "updated_at": _to_iso(l.updated_at),
+                "connect_deadline": _to_iso(l.connect_deadline),
+                "ttl_deadline": _to_iso(l.ttl_deadline),
+                "last_error": l.last_error,
+            }
+            for l in leases
+        ],
+        "events": [
+            {
+                "id": e.id,
+                "timestamp": _to_iso(e.timestamp),
+                "lease_id": e.lease_id,
+                "event_type": e.event_type,
+                "payload_json": e.payload_json,
+            }
+            for e in events
+        ],
+        "metrics": metrics.snapshot(),
+    }
+
+
 @router.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -49,6 +116,27 @@ def healthz() -> dict[str, str]:
 @router.get("/metrics")
 def metrics_endpoint() -> dict[str, int]:
     return metrics.snapshot()
+
+
+@router.get("/ui", response_class=HTMLResponse)
+def ui_dashboard(db: Session = Depends(get_db)) -> HTMLResponse:
+    snapshot = _build_snapshot(db)
+    snapshot_json = json.dumps(snapshot)
+    html = f"""<!doctype html>
+<html lang=\"en\">
+  <head>
+    <meta charset=\"utf-8\" />
+    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+    <title>Control Plane Dashboard</title>
+    <link rel=\"stylesheet\" href=\"/static/ui.css\" />
+  </head>
+  <body>
+    <div id=\"app\"></div>
+    <script id=\"cp-snapshot\" type=\"application/json\">{snapshot_json}</script>
+    <script src=\"/static/ui.js\" defer></script>
+  </body>
+</html>"""
+    return HTMLResponse(content=html)
 
 
 @router.post("/v1/hosts/{host_id}/register", response_model=RegisterHostResponse)

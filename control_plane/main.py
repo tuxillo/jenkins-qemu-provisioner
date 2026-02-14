@@ -1,7 +1,9 @@
 import logging
 import threading
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from control_plane.api import router
 from control_plane.config import get_settings
@@ -18,6 +20,8 @@ loop_threads: list[threading.Thread] = []
 
 app = FastAPI(title="Jenkins QEMU Control Plane")
 app.include_router(router)
+_static_dir = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 
 @app.on_event("startup")

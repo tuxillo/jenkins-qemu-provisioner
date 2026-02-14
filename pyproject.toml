@@ -26,3 +26,6 @@ testpaths = ["tests"]
 
 [tool.setuptools.packages.find]
 include = ["control_plane*"]
+
+[tool.setuptools.package-data]
+control_plane = ["static/*.css", "static/*.js", "migrations/*.sql"]

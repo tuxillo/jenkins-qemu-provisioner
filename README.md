@@ -35,6 +35,11 @@ docker compose up -d --build
 - Jenkins: `http://localhost:8080`
 - Control-plane health: `http://localhost:8000/healthz`
 - Control-plane metrics: `http://localhost:8000/metrics`
+- Control-plane UI: `http://localhost:8000/ui`
+
+UI note:
+- `/ui` is read-only and renders from a server-embedded snapshot.
+- It does not query control-plane APIs from the browser.
 
 ## Control-plane development
 
@@ -50,6 +55,7 @@ make test
 - High-level design: `docs/jenkins-ephemeral-qemu-design.md`
 - Operations notes: `docs/control-plane-operations.md`
 - MVP checklist: `docs/mvp-acceptance-checklist.md`
+- UI contract and scope: `docs/ui-dashboard.md`
 
 ## Task tracking
 
