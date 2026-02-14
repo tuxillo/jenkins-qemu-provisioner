@@ -39,6 +39,7 @@
   - Scaler owns desired state and termination decisions.
   - Node agent owns process teardown and overlay deletion.
   - VM may run local watchdog for `lease_expires_at` as fallback safety.
+  - Primary termination path: when Jenkins reports build finished (success, failed, aborted, unstable), control-plane immediately terminates VM and deletes Jenkins node.
 
 - Reconciliation model
   - Every loop compares:
@@ -46,6 +47,28 @@
     2) scaler lease DB
     3) node-agent live VM inventory
   - Any mismatch is drift and is corrected immediately.
+
+## Jenkins Node and VM Lifecycle
+
+- Provisioning path
+  - Queue item is buildable for label.
+  - Control-plane creates Jenkins node (`executors=1`, exclusive) and fetches inbound secret.
+  - Control-plane requests VM launch on node-agent with node name and secret.
+  - VM boots, inbound agent connects, Jenkins schedules one job.
+
+- Execution path
+  - Node state transitions: `CREATED -> ONLINE -> BUSY`.
+  - Lease state transitions: `REQUESTED -> PROVISIONING -> BOOTING -> CONNECTED -> RUNNING`.
+
+- Completion and teardown path
+  - Trigger: Jenkins job leaves running state for any terminal result (`SUCCESS`, `FAILURE`, `ABORTED`, `UNSTABLE`, `NOT_BUILT`).
+  - Action: control-plane issues VM termination immediately.
+  - After VM termination confirmation: delete Jenkins node and mark lease `TERMINATED`.
+
+- Failure and timeout path
+  - If agent never connects by `connect_deadline`: terminate VM and delete node.
+  - If agent disconnects unexpectedly and grace expires: terminate VM and delete node.
+  - If hard TTL expires: terminate VM and delete node.
 
 ## Scaler Control Loop (Pseudocode)
 
@@ -141,6 +164,7 @@ loop every 5s:
 
 | Failure case | Detection | Action |
 |---|---|---|
+| Job finished or failed | Jenkins reports terminal build state for node | Immediately terminate VM, delete Jenkins node, close lease |
 | VM booted but never connected | `now > connect_deadline` and Jenkins node offline | Terminate VM, delete overlay, delete Jenkins node, release lease |
 | Agent disconnects unexpectedly mid-build | Jenkins node offline and running lease exceeds disconnected grace | Terminate VM, delete node; rely on Jenkins retry policy for job recovery |
 | Jenkins node exists but VM is gone | Node present in Jenkins, missing from node-agent inventory | Delete stale Jenkins node; reprovision only if queue still requires capacity |
@@ -173,6 +197,12 @@ loop every 5s:
   - Roll base images explicitly (blue/green base IDs), never mutate in place.
 
 ## Minimal Scaler to Node-Agent API (Idempotent)
+
+- `POST /v1/hosts/{host_id}/register`
+  - Purpose: authenticate and register host node-agent with control-plane.
+  - Auth: bootstrap token (`Authorization: Bearer <bootstrap_token>`).
+  - Request fields: `agent_version`, `qemu_version`, `cpu_total`, `ram_total_mb`, `base_image_ids`, `addr`
+  - Response fields: `host_id`, `enabled`, `session_token`, `session_expires_at`, `heartbeat_interval_sec`
 
 - `PUT /v1/vms/{vm_id}`
   - Purpose: ensure VM exists and is running for a lease.
@@ -213,3 +243,111 @@ loop every 5s:
 - Disconnected grace: `60s` (or 2x Jenkins heartbeat interval)
 - Absolute VM TTL: `2x` expected max job duration with a hard upper cap
 - Global launch rate: tune by host fleet, for example `20 VMs / 10s`
+
+## Node Specs and Limits (Simple)
+
+- Per-label node spec profiles
+  - `small`: `2 vCPU`, `4 GiB RAM`, `40 GiB overlay`
+  - `medium`: `4 vCPU`, `8 GiB RAM`, `80 GiB overlay`
+  - `large`: `8 vCPU`, `16 GiB RAM`, `120 GiB overlay`
+
+- Placement limits
+  - Each label maps to one profile.
+  - Host is eligible only if free CPU and RAM can satisfy one new VM profile.
+  - Per-host hard cap: maximum concurrent VMs configured per host.
+  - Per-label hard cap and global hard cap remain enforced by scaler.
+
+## Control-Plane Implementation (FastAPI + SQLite)
+
+- Scope
+  - Control-plane is one service that includes scaler, provisioner, reconciler, and garbage collector modules.
+  - Node-agent remains a separate per-host service that executes VM lifecycle operations.
+
+- Runtime model
+  - FastAPI serves HTTP endpoints for status, operator actions, and node-agent callbacks.
+  - Background loops run in-process using startup tasks:
+    - scaling and reconciliation tick every `5s`
+    - GC sweep every `30s`
+
+- Storage
+  - SQLite is the control-plane source of truth for lease and mapping state.
+  - Enable WAL mode for better concurrent read and write behavior in dev.
+  - Keep transactions short and make state transitions idempotent.
+
+- Minimal schema
+  - `leases`
+    - `lease_id` (pk), `vm_id` (unique), `label`, `jenkins_node` (unique), `state`, `host_id`
+    - `created_at`, `updated_at`, `connect_deadline`, `ttl_deadline`, `last_heartbeat`, `last_error`
+  - `hosts`
+    - `host_id` (pk), `enabled`, `bootstrap_token_hash`, `session_token_hash`, `session_expires_at`
+    - `cpu_total`, `cpu_free`, `ram_total_mb`, `ram_free_mb`, `io_pressure`, `last_seen`
+  - `events` (recommended)
+    - append-only audit trail for debugging and failure forensics
+    - `id` (pk), `timestamp`, `lease_id`, `event_type`, `payload_json`
+
+- Lease state machine
+  - `REQUESTED -> PROVISIONING -> BOOTING -> CONNECTED -> RUNNING -> TERMINATING -> TERMINATED`
+  - Error side states: `FAILED`, `ORPHANED`
+  - Transition rule: each state change must be safe to replay and bounded by deadlines.
+
+- Control-plane endpoints
+  - Internal and ops
+    - `GET /healthz`
+    - `GET /v1/leases`
+    - `POST /v1/leases/{lease_id}/terminate`
+  - Node-agent callbacks
+    - `POST /v1/hosts/{host_id}/register`
+    - `POST /v1/hosts/{host_id}/heartbeat`
+    - `POST /v1/vms/{vm_id}/status`
+  - Outbound control-plane calls to node-agent use the API defined in this document (`PUT/GET/DELETE /v1/vms`, `GET /v1/capacity`).
+
+- Host node-agent registration and auth
+  - Registration is for host node-agents, not Jenkins build agents in VMs.
+  - Each host gets a pre-provisioned `host_id` and one bootstrap token created by operators.
+  - On node-agent startup:
+    - call `POST /v1/hosts/{host_id}/register` with `Authorization: Bearer <bootstrap_token>`
+    - include host facts: CPU, RAM, QEMU version, agent version, and available base image IDs
+  - Control-plane verifies token hash, marks host active, and returns a short-lived session token.
+  - Steady state:
+    - node-agent heartbeats every 5 to 10 seconds using `Authorization: Bearer <session_token>`
+    - heartbeat updates `last_seen`, free capacity, IO pressure, and running VM IDs
+  - Scheduling guard:
+    - host is schedulable only when `enabled=true` and `now - last_seen < stale_timeout`
+    - stale host is removed from placement decisions until it re-registers/heartbeats
+  - Revocation:
+    - control-plane can disable host (`enabled=false`) or rotate bootstrap token
+    - expired or revoked session tokens are rejected and require re-registration
+
+- Concurrency and idempotency rules
+  - Use compare-and-set style updates on lease state (update only if current state matches expected).
+  - Enforce unique constraints on `vm_id` and `jenkins_node` to prevent duplicate provisioning.
+  - Use per-label launch lock rows or equivalent DB guard to avoid double launches in concurrent workers.
+
+- Retry policy (simple)
+  - Jenkins API and node-agent API calls use fixed-attempt retries.
+  - Default policy: retry up to `N=3` attempts.
+  - If all attempts fail, sleep `M=10s` before next reconcile attempt.
+  - Persistent failures move lease to `FAILED` with `last_error` populated.
+
+- Isolation (minimal for now)
+  - One job per VM, one executor per node.
+  - No workspace persistence across jobs; overlay deleted on teardown.
+  - No host filesystem mounts into guest beyond required boot media.
+
+- Configuration (env vars)
+  - `JENKINS_URL`, `JENKINS_USER`, `JENKINS_API_TOKEN`
+  - `DATABASE_URL=sqlite:///./control_plane.db`
+  - `LOOP_INTERVAL_SEC=5`, `GC_INTERVAL_SEC=30`
+  - `GLOBAL_MAX_VMS`, `LABEL_MAX_INFLIGHT`, `LABEL_BURST`
+  - `CONNECT_DEADLINE_SEC`, `DISCONNECTED_GRACE_SEC`, `VM_TTL_SEC`
+
+## SQLite Limits and Migration Path
+
+- SQLite fit
+  - Suitable for local development and single-instance control-plane deployment.
+  - Not suitable for HA multi-writer deployments.
+
+- Migration path
+  - Keep DB access through SQLAlchemy models and repository interfaces.
+  - Avoid SQLite-specific SQL in business logic.
+  - When moving to production scale, switch `DATABASE_URL` to PostgreSQL and keep the same control loops and API contracts.
