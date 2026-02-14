@@ -16,8 +16,32 @@ services:
     networks:
       - jenkins_dev_net
 
+  control-plane:
+    build:
+      context: .
+      dockerfile: control_plane/Dockerfile
+    container_name: control-plane-dev
+    restart: unless-stopped
+    depends_on:
+      - jenkins
+    ports:
+      - "8000:8000"
+    environment:
+      JENKINS_URL: ${CP_JENKINS_URL:-http://jenkins:8080}
+      JENKINS_USER: ${CP_JENKINS_USER:-admin}
+      JENKINS_API_TOKEN: ${CP_JENKINS_API_TOKEN:-admin}
+      DATABASE_URL: ${CP_DATABASE_URL:-sqlite:////data/control_plane.db}
+      NODE_AGENT_URL: ${CP_NODE_AGENT_URL:-http://node-agent:9000}
+      NODE_AGENT_AUTH_TOKEN: ${CP_NODE_AGENT_AUTH_TOKEN:-}
+      DISABLE_BACKGROUND_LOOPS: ${CP_DISABLE_BACKGROUND_LOOPS:-true}
+    volumes:
+      - control_plane_data:/data
+    networks:
+      - jenkins_dev_net
+
 volumes:
   jenkins_home:
+  control_plane_data:
 
 networks:
   jenkins_dev_net:

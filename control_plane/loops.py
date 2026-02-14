@@ -15,10 +15,13 @@ logger = logging.getLogger(__name__)
 
 
 def _node_agent_factory(_host_id: str) -> NodeAgentClient:
-    # Simple dev default: one local node-agent endpoint.
     settings = get_settings()
     retry = RetryPolicy(settings.retry_attempts, settings.retry_sleep_sec)
-    return NodeAgentClient(base_url="http://localhost:9000", retry=retry)
+    return NodeAgentClient(
+        base_url=settings.node_agent_url,
+        retry=retry,
+        auth_token=settings.node_agent_auth_token,
+    )
 
 
 def _build_jenkins_client() -> JenkinsClient:

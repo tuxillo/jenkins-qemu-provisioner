@@ -27,6 +27,10 @@ class Settings(BaseSettings):
 
     retry_attempts: int = Field(default=3, ge=1)
     retry_sleep_sec: int = Field(default=10, ge=1)
+
+    node_agent_url: str = Field(default="http://localhost:9000")
+    node_agent_auth_token: str | None = Field(default=None)
+
     disable_background_loops: bool = Field(default=False)
 
 
