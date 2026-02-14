@@ -71,12 +71,13 @@ def provision_one(
             return existing.lease_id
 
         lease.host_id = host_id
-        session.merge(lease)
+        persisted_lease = session.merge(lease)
+        session.flush()
         write_event(
             session,
             "lease.created",
             {"label": label, "host_id": host_id},
-            lease.lease_id,
+            persisted_lease.lease_id,
         )
 
     try:

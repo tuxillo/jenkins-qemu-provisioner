@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     label_max_inflight: int = Field(default=5, ge=1)
     label_burst: int = Field(default=3, ge=1)
 
-    connect_deadline_sec: int = Field(default=240, ge=30)
+    connect_deadline_sec: int = Field(default=240, ge=5)
     disconnected_grace_sec: int = Field(default=60, ge=5)
     vm_ttl_sec: int = Field(default=7200, ge=60)
     host_stale_timeout_sec: int = Field(default=20, ge=5)
