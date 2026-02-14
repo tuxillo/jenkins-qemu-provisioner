@@ -1,0 +1,56 @@
+# Jenkins QEMU Provisioner
+
+Lightweight control plane for running Jenkins builds on ephemeral QEMU VMs.
+
+## What this project does
+
+- Jenkins is the scheduler only.
+- One queued job maps to one disposable VM (`1 job = 1 VM = 1 node`).
+- VM lifecycle is ephemeral: boot -> run job -> terminate -> delete overlay disk.
+- Control-plane and host node-agent logic are owned in this repo.
+
+## Core components
+
+- `control_plane/`: FastAPI + SQLite control-plane (scaler, provisioner, reconciler, GC).
+- `docker-compose.yml`: local Jenkins + control-plane development stack.
+- `jenkins/`: Jenkins bootstrap scripts for local admin/security initialization.
+- `docs/`: architecture/design and operations notes.
+
+## Quick start (local)
+
+1. Copy environment file:
+
+```bash
+cp .env.example .env
+```
+
+2. Start Jenkins + control-plane:
+
+```bash
+docker compose up -d --build
+```
+
+3. Verify services:
+
+- Jenkins: `http://localhost:8080`
+- Control-plane health: `http://localhost:8000/healthz`
+- Control-plane metrics: `http://localhost:8000/metrics`
+
+## Control-plane development
+
+```bash
+make install
+make init-db
+make run
+make test
+```
+
+## Design and ops docs
+
+- High-level design: `docs/jenkins-ephemeral-qemu-design.md`
+- Operations notes: `docs/control-plane-operations.md`
+- MVP checklist: `docs/mvp-acceptance-checklist.md`
+
+## Task tracking
+
+This repository uses `bd` (beads) for task tracking. See `AGENTS.md` for workflow requirements.
