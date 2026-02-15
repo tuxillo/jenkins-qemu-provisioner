@@ -44,13 +44,16 @@ def register_host(client: httpx.Client, state: ControlPlaneSession) -> None:
     settings = get_agent_settings()
     cpu_total = os.cpu_count() or 1
     ram_total_mb = max(_detect_total_ram_mb(), 256)
+    advertised_addr = (
+        settings.advertise_addr or f"{settings.bind_host}:{settings.bind_port}"
+    )
     payload = {
         "agent_version": "0.1.0",
         "qemu_version": "unknown",
         "cpu_total": cpu_total,
         "ram_total_mb": ram_total_mb,
         "base_image_ids": [],
-        "addr": f"{settings.bind_host}:{settings.bind_port}",
+        "addr": advertised_addr,
         "os_family": settings.os_family,
         "os_version": settings.os_version,
         "qemu_binary": settings.qemu_binary,

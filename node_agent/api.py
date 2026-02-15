@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from datetime import UTC, datetime
 
+import httpx
 from fastapi import APIRouter, HTTPException, Query
 
 from node_agent.config import get_agent_settings
@@ -22,6 +23,17 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _report_vm_status(
+    settings, vm_id: str, state: str, reason: str | None = None
+) -> None:
+    payload = {"state": state, "reason": reason}
+    try:
+        with httpx.Client(base_url=settings.control_plane_url, timeout=5.0) as client:
+            client.post(f"/v1/vms/{vm_id}/status", json=payload)
+    except Exception:  # noqa: BLE001
+        logger.debug("failed posting vm status vm_id=%s state=%s", vm_id, state)
+
+
 @router.get("/healthz")
 def healthz() -> dict:
     settings = get_agent_settings()
@@ -37,6 +49,7 @@ def healthz() -> dict:
 @router.put("/v1/vms/{vm_id}", response_model=VMStateResponse)
 def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
     settings = get_agent_settings()
+    _report_vm_status(settings, vm_id, "PROVISIONING")
     existing = get_vm(vm_id)
     if existing and existing["state"] in {"RUNNING", "BOOTING"}:
         return VMStateResponse(
@@ -49,6 +62,9 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
 
     base_image_path = str(Path(settings.base_image_dir) / f"{req.base_image_id}.qcow2")
     if not settings.dry_run and not Path(base_image_path).exists():
+        _report_vm_status(
+            settings, vm_id, "FAILED", f"base image not found: {base_image_path}"
+        )
         raise HTTPException(
             status_code=400, detail=f"base image not found: {base_image_path}"
         )
@@ -63,6 +79,7 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
             jnlp_secret=req.jnlp_secret,
         )
     except Exception as exc:  # noqa: BLE001
+        _report_vm_status(settings, vm_id, "FAILED", f"cloud-init failed: {exc}")
         logger.exception("failed writing cloud-init vm_id=%s error=%s", vm_id, exc)
         raise HTTPException(
             status_code=500,
@@ -76,6 +93,9 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
         try:
             create_overlay(base_image_path, runtime_paths.overlay_path)
         except Exception as exc:  # noqa: BLE001
+            _report_vm_status(
+                settings, vm_id, "FAILED", f"overlay creation failed: {exc}"
+            )
             logger.exception(
                 "failed creating overlay vm_id=%s base=%s overlay=%s error=%s",
                 vm_id,
@@ -104,6 +124,7 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
     try:
         pid = launch_qemu(cmd, dry_run=settings.dry_run)
     except Exception as exc:  # noqa: BLE001
+        _report_vm_status(settings, vm_id, "FAILED", f"qemu launch failed: {exc}")
         logger.exception("failed launching qemu vm_id=%s error=%s", vm_id, exc)
         raise HTTPException(
             status_code=500,
@@ -127,6 +148,7 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
         reason=None,
     )
     state = "RUNNING" if not settings.dry_run else "BOOTING"
+    _report_vm_status(settings, vm_id, state)
     return VMStateResponse(
         vm_id=vm_id,
         state=state,

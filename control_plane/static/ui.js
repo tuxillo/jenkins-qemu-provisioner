@@ -35,7 +35,7 @@
 
   function hostRows() {
     if (!hosts.length) {
-      return "<tr><td colspan='6' class='muted'>No hosts registered yet.</td></tr>";
+      return "<tr><td colspan='7' class='muted'>No hosts registered yet.</td></tr>";
     }
     return hosts
       .map((h) => {
@@ -45,6 +45,7 @@
         return `<tr>
           <td>${h.host_id}</td>
           <td><span class="badge host-${availability.toLowerCase()}">${availability}</span></td>
+          <td>${h.addr || "-"}</td>
           <td>${h.cpu_free}/${h.cpu_total} (${cpuUse}%)</td>
           <td>${h.ram_free_mb}/${h.ram_total_mb} MB (${ramUse}%)</td>
           <td>${h.io_pressure.toFixed(2)}</td>
@@ -76,17 +77,31 @@
 
   function eventRows() {
     if (!events.length) {
-      return "<tr><td colspan='4' class='muted'>No events yet.</td></tr>";
+      return "<tr><td colspan='5' class='muted'>No events yet.</td></tr>";
     }
     return events
-      .map(
-        (e) => `<tr>
+      .map((e) => {
+        let details = "-";
+        try {
+          const payload = e.payload_json ? JSON.parse(e.payload_json) : {};
+          if (payload.error_detail || payload.error) {
+            details = payload.error_detail || payload.error;
+          } else if (payload.reject_reasons) {
+            details = JSON.stringify(payload.reject_reasons);
+          } else if (payload.node_agent_url) {
+            details = `node: ${payload.node_agent_url}`;
+          }
+        } catch (_err) {
+          details = e.payload_json || "-";
+        }
+        return `<tr>
         <td>${e.id}</td>
         <td>${e.timestamp || "-"}</td>
         <td>${e.event_type}</td>
         <td>${e.lease_id || "-"}</td>
-      </tr>`
-      )
+        <td>${details}</td>
+      </tr>`;
+      })
       .join("");
   }
 
@@ -141,7 +156,7 @@
           <div class="scroll">
             <table>
               <thead>
-                <tr><th>Host</th><th>Status</th><th>CPU</th><th>RAM</th><th>IO</th><th>Last Seen</th></tr>
+                <tr><th>Host</th><th>Status</th><th>Addr</th><th>CPU</th><th>RAM</th><th>IO</th><th>Last Seen</th></tr>
               </thead>
               <tbody>${hostRows()}</tbody>
             </table>
@@ -154,7 +169,7 @@
         <div class="scroll">
           <table>
             <thead>
-              <tr><th>ID</th><th>Timestamp</th><th>Type</th><th>Lease</th></tr>
+               <tr><th>ID</th><th>Timestamp</th><th>Type</th><th>Lease</th><th>Details</th></tr>
             </thead>
             <tbody>${eventRows()}</tbody>
           </table>

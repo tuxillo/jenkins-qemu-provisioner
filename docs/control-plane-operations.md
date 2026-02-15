@@ -21,3 +21,10 @@
 - If host is stale, disable host, investigate node-agent, then re-enable.
 - If repeated connect timeouts occur, validate base image, cloud-init, and Jenkins URL/secret wiring.
 - If retry exhaustion spikes, check Jenkins API and node-agent service health.
+
+### Launch failure attribution
+
+- Check recent scale diagnostics and launch errors:
+  - `sqlite3 control_plane.db "select id,event_type,payload_json from events where event_type like 'scale.%' or event_type like 'lease.%' order by id desc limit 100;"`
+- `scale.launch_failed` payload includes `host_id`, `node_agent_url`, and transport error details (`error_type`, `error_detail`, `request_url`).
+- In dashboard `/ui`, inspect **Recent Events** `Details` column for failure stage and endpoint hints.

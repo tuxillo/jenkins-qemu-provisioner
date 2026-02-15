@@ -17,6 +17,28 @@ NODE_PROFILES = {
 }
 
 
+class ProvisioningError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        lease_id: str,
+        vm_id: str,
+        host_id: str,
+        label: str,
+        stage: str,
+        detail: str,
+    ):
+        self.lease_id = lease_id
+        self.vm_id = vm_id
+        self.host_id = host_id
+        self.label = label
+        self.stage = stage
+        self.detail = detail
+        super().__init__(
+            f"provisioning failed lease_id={lease_id} vm_id={vm_id} host_id={host_id} stage={stage}: {detail}"
+        )
+
+
 def choose_profile(label: str) -> str:
     if "large" in label:
         return "large"
@@ -125,4 +147,11 @@ def provision_one(
             jenkins.delete_node(lease.jenkins_node)
         except Exception:  # noqa: BLE001
             pass
-        raise
+        raise ProvisioningError(
+            lease_id=lease.lease_id,
+            vm_id=lease.vm_id,
+            host_id=host_id,
+            label=label,
+            stage="ensure_vm",
+            detail=str(exc),
+        ) from exc

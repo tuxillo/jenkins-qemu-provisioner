@@ -20,6 +20,7 @@ Then edit `/etc/jenkins-qemu-node-agent/env`:
 - `NODE_AGENT_HOST_ID`
 - `NODE_AGENT_BOOTSTRAP_TOKEN`
 - `NODE_AGENT_CONTROL_PLANE_URL`
+- `NODE_AGENT_ADVERTISE_ADDR` (reachable from control-plane, e.g. `192.168.5.136:9000`)
 - `NODE_AGENT_OS_FAMILY` (`linux` or `dragonflybsd`)
 - `NODE_AGENT_QEMU_ACCEL` (`kvm` for linux, `nvmm` for dragonflybsd)
 - `NODE_AGENT_NETWORK_BACKEND` (`bridge`, `tap`, or `user`)
@@ -79,6 +80,7 @@ Service status is tracked via the daemon wrapper process.
 - VMs fail to launch after lease creation
   - Verify base image exists at `NODE_AGENT_BASE_IMAGE_DIR/<base_image_id>.qcow2`.
   - Check node-agent logs for launch stage details (`cloud-init`, overlay, `qemu` command).
+  - Verify `NODE_AGENT_ADVERTISE_ADDR` resolves from control-plane and matches node-agent bind/listen port.
 - VM launches fail on Linux
   - Validate KVM availability and QEMU permissions (`/dev/kvm`).
 - VM launches fail on DragonFlyBSD

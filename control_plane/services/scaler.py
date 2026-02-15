@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
+from control_plane.clients.http import RequestFailure
 from control_plane.clients.jenkins import JenkinsClient
 from control_plane.clients.node_agent import NodeAgentClient
 from control_plane.config import get_settings
@@ -13,6 +14,7 @@ from control_plane.models import Host, Lease, LeaseState
 from control_plane.repositories import write_event
 from control_plane.services.provisioning import (
     NODE_PROFILES,
+    ProvisioningError,
     choose_profile,
     provision_one,
 )
@@ -286,20 +288,42 @@ def scale_once(jenkins: JenkinsClient, node_agent_factory) -> None:
                     write_event(session, "scale.launch", write_payload)
             except Exception as exc:  # noqa: BLE001
                 metrics.inc("scale_launch_failed_total")
+                error_payload = {
+                    "label": label,
+                    "host_id": host.host_id,
+                    "node_agent_url": node_agent.base_url,
+                    "error": str(exc),
+                }
+                if isinstance(exc, RequestFailure):
+                    error_payload.update(
+                        {
+                            "error_type": exc.error_type,
+                            "error_detail": exc.detail,
+                            "status_code": exc.status_code,
+                            "response_text": exc.response_text,
+                            "request_url": exc.url,
+                        }
+                    )
+                if isinstance(exc, ProvisioningError):
+                    error_payload.update(
+                        {
+                            "lease_id": exc.lease_id,
+                            "vm_id": exc.vm_id,
+                            "stage": exc.stage,
+                            "provision_detail": exc.detail,
+                        }
+                    )
                 with session_scope() as session:
                     write_event(
                         session,
                         "scale.launch_failed",
-                        {
-                            "label": label,
-                            "host_id": host.host_id,
-                            "error": str(exc),
-                        },
+                        error_payload,
                     )
                 logger.exception(
-                    "launch failed label=%s host_id=%s error=%s",
+                    "launch failed label=%s host_id=%s node_agent_url=%s error=%s",
                     label,
                     host.host_id,
+                    node_agent.base_url,
                     exc,
                 )
 

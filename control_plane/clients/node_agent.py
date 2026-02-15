@@ -27,9 +27,10 @@ class NodeAgentClient:
     def __init__(
         self, base_url: str, retry: RetryPolicy, auth_token: str | None = None
     ):
+        self.base_url = base_url.rstrip("/")
         headers = {"Authorization": f"Bearer {auth_token}"} if auth_token else {}
         self.client = httpx.Client(
-            base_url=base_url.rstrip("/"), timeout=10.0, headers=headers
+            base_url=self.base_url, timeout=10.0, headers=headers
         )
         self.retry = retry
 

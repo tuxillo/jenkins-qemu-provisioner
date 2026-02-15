@@ -14,6 +14,7 @@ class AgentSettings(BaseSettings):
 
     bind_host: str = Field(default="0.0.0.0")
     bind_port: int = Field(default=9000, ge=1)
+    advertise_addr: str | None = Field(default=None)
 
     state_db_path: str = Field(default="./node_agent.db")
     base_image_dir: str = Field(default="/var/lib/jenkins-qemu/base")

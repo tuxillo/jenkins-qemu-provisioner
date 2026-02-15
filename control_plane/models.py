@@ -67,6 +67,7 @@ class Host(Base):
 
     os_family: Mapped[str | None] = mapped_column(String(64))
     os_version: Mapped[str | None] = mapped_column(String(128))
+    addr: Mapped[str | None] = mapped_column(String(256))
     qemu_binary: Mapped[str | None] = mapped_column(String(256))
     supported_accels: Mapped[str | None] = mapped_column(Text)
     selected_accel: Mapped[str | None] = mapped_column(String(32))

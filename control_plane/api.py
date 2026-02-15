@@ -89,6 +89,7 @@ def _build_snapshot(db: Session) -> dict:
                 "availability": _host_availability(
                     h, now, settings.host_stale_timeout_sec
                 ),
+                "addr": h.addr,
                 "last_seen": _to_iso(h.last_seen),
                 "cpu_total": h.cpu_total,
                 "cpu_free": h.cpu_free,
@@ -201,6 +202,7 @@ def register_host(
     host.ram_free_mb = req.ram_total_mb
     host.os_family = req.os_family
     host.os_version = req.os_version
+    host.addr = req.addr
     host.qemu_binary = req.qemu_binary
     host.supported_accels = json.dumps(req.supported_accels)
     host.selected_accel = req.selected_accel
