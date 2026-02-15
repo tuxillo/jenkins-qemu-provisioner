@@ -5,6 +5,9 @@ PREFIX=${PREFIX:-/opt/jenkins-qemu-node-agent}
 ETC_DIR=${ETC_DIR:-/etc/jenkins-qemu-node-agent}
 DATA_DIR=${DATA_DIR:-/var/lib/jenkins-qemu}
 SERVICE_USER=${SERVICE_USER:-jenkins-qemu-agent}
+NODE_AGENT_PIP_CONSTRAINT=${NODE_AGENT_PIP_CONSTRAINT:-}
+
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 
 uname_s=$(uname -s)
 case "$uname_s" in
@@ -28,6 +31,10 @@ esac
 NODE_AGENT_OS_FAMILY=${NODE_AGENT_OS_FAMILY:-$default_os_family}
 NODE_AGENT_QEMU_ACCEL=${NODE_AGENT_QEMU_ACCEL:-$default_qemu_accel}
 NODE_AGENT_SERVICE_MANAGER=${NODE_AGENT_SERVICE_MANAGER:-$default_service_manager}
+
+if [ -z "$NODE_AGENT_PIP_CONSTRAINT" ] && [ "$uname_s" = "DragonFly" ]; then
+  NODE_AGENT_PIP_CONSTRAINT="$script_dir/constraints-dragonfly.txt"
+fi
 
 if [ -x /usr/sbin/nologin ]; then
   NOLOGIN_SHELL=/usr/sbin/nologin
@@ -53,7 +60,11 @@ sudo chown -R "$SERVICE_USER":"$SERVICE_USER" "$PREFIX" "$DATA_DIR"
 
 python3 -m venv "$PREFIX/venv"
 "$PREFIX/venv/bin/pip" install --upgrade pip
-"$PREFIX/venv/bin/pip" install .
+if [ -n "$NODE_AGENT_PIP_CONSTRAINT" ]; then
+  PIP_CONSTRAINT="$NODE_AGENT_PIP_CONSTRAINT" "$PREFIX/venv/bin/pip" install .
+else
+  "$PREFIX/venv/bin/pip" install .
+fi
 
 if [ ! -f "$ETC_DIR/env" ]; then
   cat <<EOF | sudo tee "$ETC_DIR/env" >/dev/null
@@ -73,6 +84,9 @@ fi
 echo "Install complete."
 echo "Detected OS: $uname_s"
 echo "Generated defaults: NODE_AGENT_OS_FAMILY=$NODE_AGENT_OS_FAMILY NODE_AGENT_QEMU_ACCEL=$NODE_AGENT_QEMU_ACCEL NODE_AGENT_SERVICE_MANAGER=$NODE_AGENT_SERVICE_MANAGER"
+if [ -n "$NODE_AGENT_PIP_CONSTRAINT" ]; then
+  echo "Using pip build constraint: $NODE_AGENT_PIP_CONSTRAINT"
+fi
 echo "Configure $ETC_DIR/env and install service unit for your OS."
 
 if [ "$NODE_AGENT_SERVICE_MANAGER" = "systemd" ]; then

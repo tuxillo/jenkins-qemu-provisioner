@@ -11,6 +11,10 @@ From repo root:
 ./deploy/install-node-agent.sh
 ```
 
+On DragonFlyBSD, the installer applies `deploy/constraints-dragonfly.txt` by default
+to keep `maturin` compatible with older Cargo toolchains. Override with
+`NODE_AGENT_PIP_CONSTRAINT=/path/to/constraints.txt` if needed.
+
 Then edit `/etc/jenkins-qemu-node-agent/env`:
 
 - `NODE_AGENT_HOST_ID`
@@ -60,5 +64,8 @@ sudo service jenkins_qemu_node_agent status
   - Validate KVM availability and QEMU permissions (`/dev/kvm`).
 - VM launches fail on DragonFlyBSD
   - Validate NVMM support and `-accel nvmm` functionality.
+- Install fails building `pydantic-core` with a `maturin`/Cargo `edition2024` error
+  - Keep the default DragonFlyBSD installer constraint (`maturin>=1.9.4,<1.10`) for Cargo 1.79.
+  - Long-term fix is upgrading Rust/Cargo so the constraint can be removed.
 - Orphan overlays
   - Safety loop cleans unknown overlays in overlay directory; verify path settings.
