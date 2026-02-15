@@ -1,0 +1,2 @@
+ALTER TABLE hosts ADD COLUMN os_flavor TEXT;
+ALTER TABLE hosts ADD COLUMN cpu_arch TEXT;

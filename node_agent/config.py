@@ -1,5 +1,7 @@
 from functools import lru_cache
+import platform
 from pathlib import Path
+import subprocess
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,11 +23,14 @@ class AgentSettings(BaseSettings):
     overlay_dir: str = Field(default="/var/lib/jenkins-qemu/overlays")
     cloud_init_dir: str = Field(default="/var/lib/jenkins-qemu/cloud-init")
 
-    os_family: str = Field(default="linux")
-    os_version: str = Field(default="unknown")
+    os_family: str | None = Field(default=None)
+    os_flavor: str | None = Field(default=None)
+    os_version: str | None = Field(default=None)
+    cpu_arch: str | None = Field(default=None)
 
     qemu_binary: str = Field(default="qemu-system-x86_64")
-    qemu_accel: str = Field(default="kvm")
+    qemu_accel: str | None = Field(default=None)
+    supported_accels: list[str] = Field(default_factory=list)
     qemu_machine: str = Field(default="q35")
     qemu_cpu: str = Field(default="host")
     network_backend: str = Field(default="bridge")
@@ -46,13 +51,10 @@ class AgentSettings(BaseSettings):
             Path(path).mkdir(parents=True, exist_ok=True)
 
     def validate_platform(self) -> None:
-        allowed = {"linux", "dragonflybsd"}
-        if self.os_family not in allowed:
+        if self.os_family not in {"linux", "bsd", "other"}:
             raise ValueError(f"unsupported os_family {self.os_family}")
-        if self.os_family == "linux" and self.qemu_accel == "nvmm":
-            raise ValueError("nvmm accelerator is not valid default for linux")
-        if self.os_family == "dragonflybsd" and self.qemu_accel == "kvm":
-            raise ValueError("kvm accelerator is not valid default for dragonflybsd")
+        if self.qemu_accel and self.qemu_accel not in {"kvm", "nvmm", "tcg"}:
+            raise ValueError(f"unsupported qemu_accel {self.qemu_accel}")
 
         allowed_backends = {"bridge", "tap", "user"}
         if self.network_backend not in allowed_backends:
@@ -65,9 +67,73 @@ class AgentSettings(BaseSettings):
             )
 
 
+def _detect_os() -> tuple[str, str, str, str]:
+    system = platform.system().lower()
+    release = platform.release().lower()
+    arch = platform.machine().lower() or "unknown"
+
+    if system == "linux":
+        return "linux", "linux", release or "unknown", arch
+    if system in {"dragonfly", "freebsd", "openbsd", "netbsd"}:
+        flavor = {
+            "dragonfly": "dragonflybsd",
+            "freebsd": "freebsd",
+            "openbsd": "openbsd",
+            "netbsd": "netbsd",
+        }[system]
+        return "bsd", flavor, release or "unknown", arch
+    return "other", system or "unknown", release or "unknown", arch
+
+
+def _detect_supported_accels(qemu_binary: str) -> list[str]:
+    detected: list[str] = []
+    try:
+        completed = subprocess.run(
+            [qemu_binary, "-accel", "help"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        text = f"{completed.stdout}\n{completed.stderr}".lower()
+        for accel in ("kvm", "nvmm", "tcg"):
+            if accel in text:
+                detected.append(accel)
+    except Exception:
+        pass
+
+    if "tcg" not in detected:
+        detected.append("tcg")
+    return detected
+
+
+def _select_accel(os_family: str, os_flavor: str, supported: list[str]) -> str:
+    if os_family == "linux" and "kvm" in supported:
+        return "kvm"
+    if os_flavor in {"dragonflybsd", "freebsd"} and "nvmm" in supported:
+        return "nvmm"
+    return "tcg"
+
+
 @lru_cache(maxsize=1)
 def get_agent_settings() -> AgentSettings:
     settings = AgentSettings()
+
+    os_family, os_flavor, os_version, cpu_arch = _detect_os()
+    settings.os_family = os_family
+    settings.os_flavor = os_flavor
+    settings.os_version = os_version
+    settings.cpu_arch = cpu_arch
+
+    settings.supported_accels = _detect_supported_accels(settings.qemu_binary)
+    if settings.qemu_accel is None:
+        settings.qemu_accel = _select_accel(
+            settings.os_family, settings.os_flavor, settings.supported_accels
+        )
+    elif settings.qemu_accel not in settings.supported_accels:
+        settings.qemu_accel = _select_accel(
+            settings.os_family, settings.os_flavor, settings.supported_accels
+        )
+
     settings.validate_platform()
     settings.ensure_dirs()
     return settings

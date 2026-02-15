@@ -65,6 +65,8 @@ def healthz() -> dict:
         "status": "ok",
         "host_id": settings.host_id,
         "os_family": settings.os_family,
+        "os_flavor": settings.os_flavor,
+        "cpu_arch": settings.cpu_arch,
         "qemu_accel": settings.qemu_accel,
         "generated_at": datetime.now(UTC).isoformat(),
     }
@@ -282,8 +284,10 @@ def capacity() -> dict:
     return {
         "host_id": settings.host_id,
         "os_family": settings.os_family,
+        "os_flavor": settings.os_flavor,
+        "cpu_arch": settings.cpu_arch,
         "selected_accel": settings.qemu_accel,
-        "supported_accels": [settings.qemu_accel, "tcg"],
+        "supported_accels": settings.supported_accels,
         "cpu_free": cpu_free,
         "cpu_total": cpu_total,
         "ram_total_mb": ram_total_mb,

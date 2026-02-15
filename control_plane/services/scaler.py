@@ -25,6 +25,32 @@ _diag_throttle: dict[str, datetime] = {}
 logger = logging.getLogger(__name__)
 
 
+def _normalized_host_platform(host: Host) -> tuple[str, str]:
+    raw_family = (host.os_family or "").lower()
+    raw_flavor = (host.os_flavor or "").lower()
+    legacy_bsd_flavors = {"dragonflybsd", "freebsd", "openbsd", "netbsd", "dfly"}
+
+    if not raw_family and not raw_flavor:
+        return "", ""
+
+    if raw_flavor:
+        flavor = "dragonflybsd" if raw_flavor == "dfly" else raw_flavor
+    elif raw_family in legacy_bsd_flavors:
+        flavor = "dragonflybsd" if raw_family == "dfly" else raw_family
+    else:
+        flavor = raw_family
+
+    if raw_family in {"linux", "bsd", "other"}:
+        family = raw_family
+    elif flavor in {"dragonflybsd", "freebsd", "openbsd", "netbsd"}:
+        family = "bsd"
+    elif flavor == "linux":
+        family = "linux"
+    else:
+        family = ""
+    return family, flavor
+
+
 def _host_schedulable(host: Host) -> bool:
     settings = get_settings()
     if not host.enabled:
@@ -36,24 +62,38 @@ def _host_schedulable(host: Host) -> bool:
     )
 
 
-def _label_requirements(label: str) -> tuple[str | None, str | None]:
+def _label_requirements(label: str) -> tuple[str | None, str | None, str | None]:
     lowered = label.lower()
     required_accel = None
-    required_os = None
+    required_flavor = None
+    required_family = None
     if "nvmm" in lowered:
         required_accel = "nvmm"
     elif "kvm" in lowered:
         required_accel = "kvm"
 
     if "dragonflybsd" in lowered or "dfly" in lowered:
-        required_os = "dragonflybsd"
+        required_flavor = "dragonflybsd"
+        required_family = "bsd"
+    elif "freebsd" in lowered:
+        required_flavor = "freebsd"
+        required_family = "bsd"
+    elif "openbsd" in lowered:
+        required_flavor = "openbsd"
+        required_family = "bsd"
+    elif "netbsd" in lowered:
+        required_flavor = "netbsd"
+        required_family = "bsd"
+    elif "bsd" in lowered:
+        required_family = "bsd"
     elif "linux" in lowered:
-        required_os = "linux"
-    return required_accel, required_os
+        required_flavor = "linux"
+        required_family = "linux"
+    return required_accel, required_flavor, required_family
 
 
 def _host_meets_capability(host: Host, label: str) -> bool:
-    required_accel, required_os = _label_requirements(label)
+    required_accel, required_flavor, required_family = _label_requirements(label)
 
     supported: list[str] = []
     if host.supported_accels:
@@ -68,13 +108,16 @@ def _host_meets_capability(host: Host, label: str) -> bool:
         return False
     if required_accel and host.selected_accel and host.selected_accel != required_accel:
         return False
-    if required_os and host.os_family and (host.os_family or "").lower() != required_os:
+    host_family, host_flavor = _normalized_host_platform(host)
+    if required_flavor and host_flavor and host_flavor != required_flavor:
+        return False
+    if required_family and host_family and host_family != required_family:
         return False
     return True
 
 
 def _host_capability_reason(host: Host, label: str) -> str | None:
-    required_accel, required_os = _label_requirements(label)
+    required_accel, required_flavor, required_family = _label_requirements(label)
 
     supported: list[str] = []
     if host.supported_accels:
@@ -89,7 +132,10 @@ def _host_capability_reason(host: Host, label: str) -> str | None:
         return "accel_invalid"
     if required_accel and host.selected_accel and host.selected_accel != required_accel:
         return "accel_mismatch"
-    if required_os and host.os_family and (host.os_family or "").lower() != required_os:
+    host_family, host_flavor = _normalized_host_platform(host)
+    if required_flavor and host_flavor and host_flavor != required_flavor:
+        return "os_flavor_mismatch"
+    if required_family and host_family and host_family != required_family:
         return "os_mismatch"
     return None
 

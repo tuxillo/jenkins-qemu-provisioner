@@ -34,10 +34,13 @@ def startup() -> None:
         settings.network_interface,
     )
     logger.info(
-        "node-agent startup complete host_id=%s os_family=%s accel=%s",
+        "node-agent startup complete host_id=%s os_family=%s os_flavor=%s cpu_arch=%s accel=%s supported_accels=%s",
         settings.host_id,
         settings.os_family,
+        settings.os_flavor,
+        settings.cpu_arch,
         settings.qemu_accel,
+        settings.supported_accels,
     )
     if not settings.disable_workers:
         global heartbeat_thread

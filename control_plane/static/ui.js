@@ -35,7 +35,7 @@
 
   function hostRows() {
     if (!hosts.length) {
-      return "<tr><td colspan='7' class='muted'>No hosts registered yet.</td></tr>";
+      return "<tr><td colspan='8' class='muted'>No hosts registered yet.</td></tr>";
     }
     return hosts
       .map((h) => {
@@ -45,6 +45,7 @@
         return `<tr>
           <td>${h.host_id}</td>
           <td><span class="badge host-${availability.toLowerCase()}">${availability}</span></td>
+          <td>${h.os_family || "-"}/${h.os_flavor || "-"}/${h.cpu_arch || "-"}</td>
           <td>${h.addr || "-"}</td>
           <td>${h.cpu_free}/${h.cpu_total} (${cpuUse}%)</td>
           <td>${h.ram_free_mb}/${h.ram_total_mb} MB (${ramUse}%)</td>
@@ -156,7 +157,7 @@
           <div class="scroll">
             <table>
               <thead>
-                <tr><th>Host</th><th>Status</th><th>Addr</th><th>CPU</th><th>RAM</th><th>IO</th><th>Last Seen</th></tr>
+                <tr><th>Host</th><th>Status</th><th>Platform</th><th>Addr</th><th>CPU</th><th>RAM</th><th>IO</th><th>Last Seen</th></tr>
               </thead>
               <tbody>${hostRows()}</tbody>
             </table>

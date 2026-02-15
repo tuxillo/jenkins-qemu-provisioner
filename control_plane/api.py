@@ -89,6 +89,9 @@ def _build_snapshot(db: Session) -> dict:
                 "availability": _host_availability(
                     h, now, settings.host_stale_timeout_sec
                 ),
+                "os_family": h.os_family,
+                "os_flavor": h.os_flavor,
+                "cpu_arch": h.cpu_arch,
                 "addr": h.addr,
                 "last_seen": _to_iso(h.last_seen),
                 "cpu_total": h.cpu_total,
@@ -201,7 +204,9 @@ def register_host(
     host.ram_total_mb = req.ram_total_mb
     host.ram_free_mb = req.ram_total_mb
     host.os_family = req.os_family
+    host.os_flavor = req.os_flavor
     host.os_version = req.os_version
+    host.cpu_arch = req.cpu_arch
     host.addr = req.addr
     host.qemu_binary = req.qemu_binary
     host.supported_accels = json.dumps(req.supported_accels)
@@ -254,7 +259,9 @@ def heartbeat(
 
     update_host_heartbeat(db, host, req.cpu_free, req.ram_free_mb, req.io_pressure)
     host.os_family = req.os_family or host.os_family
+    host.os_flavor = req.os_flavor or host.os_flavor
     host.os_version = req.os_version or host.os_version
+    host.cpu_arch = req.cpu_arch or host.cpu_arch
     host.qemu_binary = req.qemu_binary or host.qemu_binary
     host.selected_accel = req.selected_accel or host.selected_accel
     if req.supported_accels:

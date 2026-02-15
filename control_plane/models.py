@@ -66,7 +66,9 @@ class Host(Base):
     session_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     os_family: Mapped[str | None] = mapped_column(String(64))
+    os_flavor: Mapped[str | None] = mapped_column(String(64))
     os_version: Mapped[str | None] = mapped_column(String(128))
+    cpu_arch: Mapped[str | None] = mapped_column(String(64))
     addr: Mapped[str | None] = mapped_column(String(256))
     qemu_binary: Mapped[str | None] = mapped_column(String(256))
     supported_accels: Mapped[str | None] = mapped_column(Text)

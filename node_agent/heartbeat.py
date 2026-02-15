@@ -55,9 +55,11 @@ def register_host(client: httpx.Client, state: ControlPlaneSession) -> None:
         "base_image_ids": [],
         "addr": advertised_addr,
         "os_family": settings.os_family,
+        "os_flavor": settings.os_flavor,
         "os_version": settings.os_version,
+        "cpu_arch": settings.cpu_arch,
         "qemu_binary": settings.qemu_binary,
-        "supported_accels": [settings.qemu_accel, "tcg"],
+        "supported_accels": settings.supported_accels,
         "selected_accel": settings.qemu_accel,
     }
     response = client.post(
@@ -93,9 +95,11 @@ def send_heartbeat(client: httpx.Client, state: ControlPlaneSession) -> None:
         "io_pressure": 0.0,
         "running_vm_ids": running_ids,
         "os_family": settings.os_family,
+        "os_flavor": settings.os_flavor,
         "os_version": settings.os_version,
+        "cpu_arch": settings.cpu_arch,
         "qemu_binary": settings.qemu_binary,
-        "supported_accels": [settings.qemu_accel, "tcg"],
+        "supported_accels": settings.supported_accels,
         "selected_accel": settings.qemu_accel,
     }
     response = client.post(

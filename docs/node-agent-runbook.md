@@ -21,10 +21,11 @@ Then edit `/etc/jenkins-qemu-node-agent/env`:
 - `NODE_AGENT_BOOTSTRAP_TOKEN`
 - `NODE_AGENT_CONTROL_PLANE_URL`
 - `NODE_AGENT_ADVERTISE_ADDR` (reachable from control-plane, e.g. `192.168.5.136:9000`)
-- `NODE_AGENT_OS_FAMILY` (`linux` or `dragonflybsd`)
-- `NODE_AGENT_QEMU_ACCEL` (`kvm` for linux, `nvmm` for dragonflybsd)
 - `NODE_AGENT_NETWORK_BACKEND` (`bridge`, `tap`, or `user`)
 - `NODE_AGENT_NETWORK_INTERFACE` (required for `bridge`/`tap`)
+
+OS family/flavor, CPU architecture, and accelerator support are auto-detected at
+runtime and reported to control-plane; they are no longer configured in env.
 
 `NODE_AGENT_HOST_ID` and `NODE_AGENT_BOOTSTRAP_TOKEN` must match a host record in
 the control-plane (or run control-plane with unknown host registration enabled in
@@ -62,7 +63,7 @@ Service status is tracked via the daemon wrapper process.
 
 - Agent health: `curl http://<host>:9000/healthz`
 - Capacity: `curl http://<host>:9000/v1/capacity`
-- In control-plane UI (`/ui`), host should appear with matching `os_family` and selected accelerator.
+- In control-plane UI (`/ui`), host should appear with matching platform (`family/flavor/arch`) and selected accelerator.
 
 ## 5) Token rotation
 
@@ -73,7 +74,7 @@ Service status is tracked via the daemon wrapper process.
 ## 6) Troubleshooting
 
 - `selected_accel not supported by host`
-  - Ensure `NODE_AGENT_QEMU_ACCEL` matches runtime support and OS family.
+  - Verify host runtime supports hardware accel; node-agent will auto-fallback to `tcg` when needed.
 - Host not schedulable
   - Verify heartbeat reaches control-plane and host is `enabled=true`.
   - Verify host free capacity is non-zero in control-plane (`cpu_free`, `ram_free_mb`).
