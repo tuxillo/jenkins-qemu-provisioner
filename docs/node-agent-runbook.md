@@ -48,6 +48,7 @@ sudo service jenkins_qemu_node_agent status
 
 The rc.d service wraps uvicorn with `/usr/sbin/daemon`, so it runs detached with
 pidfile `/var/run/jenkins_qemu_node_agent/jenkins_qemu_node_agent.pid`.
+Privilege drop is handled by `daemon -u jenkins-qemu-agent`.
 
 ## 4) Validation
 
