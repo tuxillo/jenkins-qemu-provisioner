@@ -49,7 +49,20 @@ def _to_iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
+def _host_availability(host: Host, now: datetime, stale_timeout_sec: int) -> str:
+    if not host.enabled:
+        return "DISABLED"
+    if host.last_seen is None:
+        return "UNAVAILABLE"
+    age = now.replace(tzinfo=None) - host.last_seen
+    if age.total_seconds() > stale_timeout_sec:
+        return "STALE"
+    return "AVAILABLE"
+
+
 def _build_snapshot(db: Session) -> dict:
+    settings = get_settings()
+    now = datetime.now(UTC)
     hosts = list(db.scalars(select(Host).order_by(Host.host_id.asc())))
     leases = list(db.scalars(select(Lease).order_by(Lease.created_at.desc())))
     raw_events = list(db.scalars(select(Event).order_by(Event.id.desc()).limit(250)))
@@ -73,6 +86,9 @@ def _build_snapshot(db: Session) -> dict:
             {
                 "host_id": h.host_id,
                 "enabled": h.enabled,
+                "availability": _host_availability(
+                    h, now, settings.host_stale_timeout_sec
+                ),
                 "last_seen": _to_iso(h.last_seen),
                 "cpu_total": h.cpu_total,
                 "cpu_free": h.cpu_free,
@@ -169,6 +185,8 @@ def register_host(
         )
         db.add(host)
         db.flush()
+    if not host.enabled:
+        raise HTTPException(status_code=403, detail="host disabled")
     if not secure_compare_token(token, host.bootstrap_token_hash):
         raise HTTPException(status_code=401, detail="invalid bootstrap token")
 

@@ -15,11 +15,15 @@ case "$uname_s" in
     default_os_family="linux"
     default_qemu_accel="kvm"
     default_service_manager="systemd"
+    default_network_backend="bridge"
+    default_network_interface="br0"
     ;;
   DragonFly)
     default_os_family="dragonflybsd"
     default_qemu_accel="nvmm"
     default_service_manager="rcd"
+    default_network_backend="user"
+    default_network_interface="bridge0"
     ;;
   *)
     echo "Unsupported OS: $uname_s" >&2
@@ -31,6 +35,8 @@ esac
 NODE_AGENT_OS_FAMILY=${NODE_AGENT_OS_FAMILY:-$default_os_family}
 NODE_AGENT_QEMU_ACCEL=${NODE_AGENT_QEMU_ACCEL:-$default_qemu_accel}
 NODE_AGENT_SERVICE_MANAGER=${NODE_AGENT_SERVICE_MANAGER:-$default_service_manager}
+NODE_AGENT_NETWORK_BACKEND=${NODE_AGENT_NETWORK_BACKEND:-$default_network_backend}
+NODE_AGENT_NETWORK_INTERFACE=${NODE_AGENT_NETWORK_INTERFACE:-$default_network_interface}
 
 if [ -z "$NODE_AGENT_PIP_CONSTRAINT" ] && [ "$uname_s" = "DragonFly" ]; then
   NODE_AGENT_PIP_CONSTRAINT="$script_dir/constraints-dragonfly.txt"
@@ -74,6 +80,8 @@ NODE_AGENT_CONTROL_PLANE_URL=http://127.0.0.1:8000
 NODE_AGENT_OS_FAMILY=$NODE_AGENT_OS_FAMILY
 NODE_AGENT_QEMU_ACCEL=$NODE_AGENT_QEMU_ACCEL
 NODE_AGENT_SERVICE_MANAGER=$NODE_AGENT_SERVICE_MANAGER
+NODE_AGENT_NETWORK_BACKEND=$NODE_AGENT_NETWORK_BACKEND
+NODE_AGENT_NETWORK_INTERFACE=$NODE_AGENT_NETWORK_INTERFACE
 NODE_AGENT_STATE_DB_PATH=/var/lib/jenkins-qemu/node_agent.db
 NODE_AGENT_BASE_IMAGE_DIR=/var/lib/jenkins-qemu/base
 NODE_AGENT_OVERLAY_DIR=/var/lib/jenkins-qemu/overlays
@@ -83,7 +91,7 @@ fi
 
 echo "Install complete."
 echo "Detected OS: $uname_s"
-echo "Generated defaults: NODE_AGENT_OS_FAMILY=$NODE_AGENT_OS_FAMILY NODE_AGENT_QEMU_ACCEL=$NODE_AGENT_QEMU_ACCEL NODE_AGENT_SERVICE_MANAGER=$NODE_AGENT_SERVICE_MANAGER"
+echo "Generated defaults: NODE_AGENT_OS_FAMILY=$NODE_AGENT_OS_FAMILY NODE_AGENT_QEMU_ACCEL=$NODE_AGENT_QEMU_ACCEL NODE_AGENT_SERVICE_MANAGER=$NODE_AGENT_SERVICE_MANAGER NODE_AGENT_NETWORK_BACKEND=$NODE_AGENT_NETWORK_BACKEND"
 if [ -n "$NODE_AGENT_PIP_CONSTRAINT" ]; then
   echo "Using pip build constraint: $NODE_AGENT_PIP_CONSTRAINT"
 fi

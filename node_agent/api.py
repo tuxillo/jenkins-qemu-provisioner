@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from pathlib import Path
 from datetime import UTC, datetime
@@ -18,6 +19,7 @@ from node_agent.state import delete_vm, get_vm, list_vms, upsert_vm, update_vm_s
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/healthz")
@@ -51,20 +53,40 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
             status_code=400, detail=f"base image not found: {base_image_path}"
         )
 
-    runtime_paths = write_cloud_init_files(
-        settings=settings,
-        vm_id=vm_id,
-        user_data_b64=req.cloud_init_user_data_b64,
-        node_name=req.jenkins_node_name,
-        jenkins_url=req.jenkins_url,
-        jnlp_secret=req.jnlp_secret,
-    )
+    try:
+        runtime_paths = write_cloud_init_files(
+            settings=settings,
+            vm_id=vm_id,
+            user_data_b64=req.cloud_init_user_data_b64,
+            node_name=req.jenkins_node_name,
+            jenkins_url=req.jenkins_url,
+            jnlp_secret=req.jnlp_secret,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("failed writing cloud-init vm_id=%s error=%s", vm_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"cloud-init generation failed for {vm_id}: {exc}",
+        ) from exc
 
     if req.overlay_path:
         runtime_paths.overlay_path = req.overlay_path
 
     if not settings.dry_run:
-        create_overlay(base_image_path, runtime_paths.overlay_path)
+        try:
+            create_overlay(base_image_path, runtime_paths.overlay_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "failed creating overlay vm_id=%s base=%s overlay=%s error=%s",
+                vm_id,
+                base_image_path,
+                runtime_paths.overlay_path,
+                exc,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"overlay creation failed for {vm_id}: {exc}",
+            ) from exc
     else:
         Path(runtime_paths.overlay_path).parent.mkdir(parents=True, exist_ok=True)
         Path(runtime_paths.overlay_path).touch(exist_ok=True)
@@ -79,7 +101,14 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
         ram_mb=req.ram_mb,
         disk_interface=settings.disk_interface,
     )
-    pid = launch_qemu(cmd, dry_run=settings.dry_run)
+    try:
+        pid = launch_qemu(cmd, dry_run=settings.dry_run)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("failed launching qemu vm_id=%s error=%s", vm_id, exc)
+        raise HTTPException(
+            status_code=500,
+            detail=f"qemu launch failed for {vm_id}: {exc}",
+        ) from exc
 
     lease_id = None
     if isinstance(req.metadata, dict):

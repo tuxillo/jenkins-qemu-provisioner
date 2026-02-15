@@ -22,10 +22,16 @@ Then edit `/etc/jenkins-qemu-node-agent/env`:
 - `NODE_AGENT_CONTROL_PLANE_URL`
 - `NODE_AGENT_OS_FAMILY` (`linux` or `dragonflybsd`)
 - `NODE_AGENT_QEMU_ACCEL` (`kvm` for linux, `nvmm` for dragonflybsd)
+- `NODE_AGENT_NETWORK_BACKEND` (`bridge`, `tap`, or `user`)
+- `NODE_AGENT_NETWORK_INTERFACE` (required for `bridge`/`tap`)
 
 `NODE_AGENT_HOST_ID` and `NODE_AGENT_BOOTSTRAP_TOKEN` must match a host record in
 the control-plane (or run control-plane with unknown host registration enabled in
 dev mode).
+
+DragonFlyBSD defaults to `NODE_AGENT_NETWORK_BACKEND=user` to avoid bridge setup
+requirements during initial bring-up. Switch to `bridge`/`tap` only after host
+network interfaces are provisioned.
 
 ## 2) Linux service management (systemd)
 
@@ -70,6 +76,9 @@ Service status is tracked via the daemon wrapper process.
 - Host not schedulable
   - Verify heartbeat reaches control-plane and host is `enabled=true`.
   - Verify host free capacity is non-zero in control-plane (`cpu_free`, `ram_free_mb`).
+- VMs fail to launch after lease creation
+  - Verify base image exists at `NODE_AGENT_BASE_IMAGE_DIR/<base_image_id>.qcow2`.
+  - Check node-agent logs for launch stage details (`cloud-init`, overlay, `qemu` command).
 - VM launches fail on Linux
   - Validate KVM availability and QEMU permissions (`/dev/kvm`).
 - VM launches fail on DragonFlyBSD

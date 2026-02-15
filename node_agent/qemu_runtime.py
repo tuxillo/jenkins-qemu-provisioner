@@ -1,10 +1,14 @@
 import base64
+import logging
 import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 from node_agent.config import AgentSettings
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -73,7 +77,14 @@ def write_cloud_init_files(
                 str(user_data_path),
                 str(meta_data_path),
             ]
-        subprocess.run(cmd, check=True)
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").strip()
+            stdout = (exc.stdout or "").strip()
+            raise RuntimeError(
+                f"cloud-init ISO generation failed with {mkisofs}: {stderr or stdout or exc}"
+            ) from exc
     else:
         iso_path.write_bytes(b"")
 
@@ -167,25 +178,31 @@ def create_overlay(base_image_path: str, overlay_path: str) -> None:
     if not qemu_img:
         raise RuntimeError("qemu-img not found in PATH")
     Path(overlay_path).parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [
-            qemu_img,
-            "create",
-            "-f",
-            "qcow2",
-            "-F",
-            "qcow2",
-            "-b",
-            base_image_path,
-            overlay_path,
-        ],
-        check=True,
-    )
+    cmd = [
+        qemu_img,
+        "create",
+        "-f",
+        "qcow2",
+        "-F",
+        "qcow2",
+        "-b",
+        base_image_path,
+        overlay_path,
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip()
+        stdout = (exc.stdout or "").strip()
+        raise RuntimeError(
+            f"qemu-img overlay creation failed: {stderr or stdout or exc}"
+        ) from exc
 
 
 def launch_qemu(cmd: list[str], dry_run: bool) -> int:
     if dry_run:
         return 0
+    logger.info("launching qemu command=%s", " ".join(cmd))
     proc = subprocess.Popen(cmd)
     return int(proc.pid)
 

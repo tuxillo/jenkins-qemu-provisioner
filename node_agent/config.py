@@ -53,6 +53,16 @@ class AgentSettings(BaseSettings):
         if self.os_family == "dragonflybsd" and self.qemu_accel == "kvm":
             raise ValueError("kvm accelerator is not valid default for dragonflybsd")
 
+        allowed_backends = {"bridge", "tap", "user"}
+        if self.network_backend not in allowed_backends:
+            raise ValueError(
+                f"unsupported network_backend {self.network_backend}; expected one of {sorted(allowed_backends)}"
+            )
+        if self.network_backend in {"bridge", "tap"} and not self.network_interface:
+            raise ValueError(
+                f"network_interface is required for network_backend={self.network_backend}"
+            )
+
 
 @lru_cache(maxsize=1)
 def get_agent_settings() -> AgentSettings:

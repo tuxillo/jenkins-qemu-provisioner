@@ -25,6 +25,15 @@ def startup() -> None:
     initialize_state()
     startup_reconcile()
     logger.info(
+        "node-agent preflight control_plane_url=%s base_dir=%s overlay_dir=%s cloud_init_dir=%s network_backend=%s network_interface=%s",
+        settings.control_plane_url,
+        settings.base_image_dir,
+        settings.overlay_dir,
+        settings.cloud_init_dir,
+        settings.network_backend,
+        settings.network_interface,
+    )
+    logger.info(
         "node-agent startup complete host_id=%s os_family=%s accel=%s",
         settings.host_id,
         settings.os_family,

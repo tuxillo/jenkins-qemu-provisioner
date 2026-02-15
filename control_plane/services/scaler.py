@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -18,6 +19,8 @@ from control_plane.services.provisioning import (
 
 
 _cooldowns: dict[str, datetime] = {}
+_diag_throttle: dict[str, datetime] = {}
+logger = logging.getLogger(__name__)
 
 
 def _host_schedulable(host: Host) -> bool:
@@ -68,6 +71,27 @@ def _host_meets_capability(host: Host, label: str) -> bool:
     return True
 
 
+def _host_capability_reason(host: Host, label: str) -> str | None:
+    required_accel, required_os = _label_requirements(label)
+
+    supported: list[str] = []
+    if host.supported_accels:
+        try:
+            parsed = json.loads(host.supported_accels)
+            if isinstance(parsed, list):
+                supported = [str(x) for x in parsed]
+        except json.JSONDecodeError:
+            supported = []
+
+    if host.selected_accel and supported and host.selected_accel not in supported:
+        return "accel_invalid"
+    if required_accel and host.selected_accel and host.selected_accel != required_accel:
+        return "accel_mismatch"
+    if required_os and host.os_family and (host.os_family or "").lower() != required_os:
+        return "os_mismatch"
+    return None
+
+
 def _eligible_hosts(label: str, hosts: list[Host]) -> list[Host]:
     profile_name = choose_profile(label)
     profile = NODE_PROFILES[profile_name]
@@ -81,6 +105,57 @@ def _eligible_hosts(label: str, hosts: list[Host]) -> list[Host]:
     ]
     eligible.sort(key=lambda h: (h.io_pressure, -h.cpu_free, -h.ram_free_mb))
     return eligible
+
+
+def _eligible_hosts_with_reasons(
+    label: str, hosts: list[Host]
+) -> tuple[list[Host], dict[str, int]]:
+    settings = get_settings()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    profile_name = choose_profile(label)
+    profile = NODE_PROFILES[profile_name]
+    reasons: dict[str, int] = {}
+    eligible: list[Host] = []
+
+    for host in hosts:
+        reason: str | None = None
+        if not host.enabled:
+            reason = "disabled"
+        elif host.last_seen is None or now - host.last_seen > timedelta(
+            seconds=settings.host_stale_timeout_sec
+        ):
+            reason = "stale"
+        else:
+            reason = _host_capability_reason(host, label)
+            if reason is None and host.cpu_free < profile["vcpu"]:
+                reason = "cpu_insufficient"
+            if reason is None and host.ram_free_mb < profile["ram_mb"]:
+                reason = "ram_insufficient"
+
+        if reason:
+            reasons[reason] = reasons.get(reason, 0) + 1
+        else:
+            eligible.append(host)
+
+    eligible.sort(key=lambda h: (h.io_pressure, -h.cpu_free, -h.ram_free_mb))
+    return eligible, reasons
+
+
+def _throttled_diag_event(
+    *,
+    event_type: str,
+    payload: dict,
+    now: datetime,
+    throttle_sec: int = 30,
+) -> bool:
+    key = f"{event_type}:{payload.get('label', '_')}"
+    last = _diag_throttle.get(key)
+    if last and (now - last).total_seconds() < throttle_sec:
+        return False
+    _diag_throttle[key] = now
+    with session_scope() as session:
+        write_event(session, event_type, payload)
+    return True
 
 
 def scale_once(jenkins: JenkinsClient, node_agent_factory) -> None:
@@ -118,10 +193,18 @@ def scale_once(jenkins: JenkinsClient, node_agent_factory) -> None:
                 )
 
     active_global = len(active)
+    if not snapshot.queued_by_label:
+        metrics.inc("scale_no_queue_labels_total")
     for label, queued in snapshot.queued_by_label.items():
         if queued <= 0:
             continue
         if _cooldowns.get(label, now) > now:
+            metrics.inc("scale_cooldown_skip_total")
+            _throttled_diag_event(
+                event_type="scale.cooldown_active",
+                payload={"label": label, "queued": queued},
+                now=now,
+            )
             continue
 
         inflight = inflight_by_label.get(label, 0)
@@ -130,15 +213,59 @@ def scale_once(jenkins: JenkinsClient, node_agent_factory) -> None:
         if raw_deficit <= 0:
             continue
         if inflight >= settings.label_max_inflight:
+            metrics.inc("scale_inflight_limit_skip_total")
+            _throttled_diag_event(
+                event_type="scale.inflight_limit",
+                payload={
+                    "label": label,
+                    "queued": queued,
+                    "inflight": inflight,
+                    "max_inflight": settings.label_max_inflight,
+                },
+                now=now,
+            )
             continue
 
         remaining_global = max(settings.global_max_vms - active_global, 0)
         launchable = min(raw_deficit, settings.label_burst, remaining_global)
         if launchable <= 0:
+            metrics.inc("scale_global_limit_skip_total")
+            _throttled_diag_event(
+                event_type="scale.global_limit",
+                payload={
+                    "label": label,
+                    "queued": queued,
+                    "raw_deficit": raw_deficit,
+                    "remaining_global": remaining_global,
+                },
+                now=now,
+            )
             continue
 
-        candidates = _eligible_hosts(label, hosts)
+        candidates, reject_reasons = _eligible_hosts_with_reasons(label, hosts)
         if not candidates:
+            metrics.inc("scale_no_eligible_hosts_total")
+            for reason, count in reject_reasons.items():
+                metrics.inc(f"scale_reject_{reason}_total", count)
+            emitted = _throttled_diag_event(
+                event_type="scale.no_eligible_hosts",
+                payload={
+                    "label": label,
+                    "queued": queued,
+                    "inflight": inflight,
+                    "host_count": len(hosts),
+                    "reject_reasons": reject_reasons,
+                },
+                now=now,
+            )
+            if emitted:
+                logger.warning(
+                    "no eligible hosts label=%s queued=%s inflight=%s reasons=%s",
+                    label,
+                    queued,
+                    inflight,
+                    reject_reasons,
+                )
             continue
 
         for _ in range(launchable):
@@ -146,15 +273,34 @@ def scale_once(jenkins: JenkinsClient, node_agent_factory) -> None:
                 break
             host = candidates[0]
             node_agent = node_agent_factory(host.host_id)
-            provision_one(
-                label=label,
-                host_id=host.host_id,
-                jenkins=jenkins,
-                node_agent=node_agent,
-            )
-            metrics.inc("launch_attempts_total")
-            write_payload = {"label": label, "host_id": host.host_id}
-            with session_scope() as session:
-                write_event(session, "scale.launch", write_payload)
+            try:
+                provision_one(
+                    label=label,
+                    host_id=host.host_id,
+                    jenkins=jenkins,
+                    node_agent=node_agent,
+                )
+                metrics.inc("launch_attempts_total")
+                write_payload = {"label": label, "host_id": host.host_id}
+                with session_scope() as session:
+                    write_event(session, "scale.launch", write_payload)
+            except Exception as exc:  # noqa: BLE001
+                metrics.inc("scale_launch_failed_total")
+                with session_scope() as session:
+                    write_event(
+                        session,
+                        "scale.launch_failed",
+                        {
+                            "label": label,
+                            "host_id": host.host_id,
+                            "error": str(exc),
+                        },
+                    )
+                logger.exception(
+                    "launch failed label=%s host_id=%s error=%s",
+                    label,
+                    host.host_id,
+                    exc,
+                )
 
         _cooldowns[label] = now + timedelta(seconds=settings.loop_interval_sec * 3)

@@ -2,7 +2,7 @@ import logging
 import os
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -17,6 +17,7 @@ class ControlPlaneSession:
     def __init__(self) -> None:
         self.session_token: str | None = None
         self.session_expires_at: datetime | None = None
+        self.register_disabled_until: datetime | None = None
 
 
 def _detect_total_ram_mb() -> int:
@@ -67,6 +68,7 @@ def register_host(client: httpx.Client, state: ControlPlaneSession) -> None:
     state.session_expires_at = datetime.fromisoformat(
         body["session_expires_at"].replace("Z", "+00:00")
     )
+    state.register_disabled_until = None
 
 
 def send_heartbeat(client: httpx.Client, state: ControlPlaneSession) -> None:
@@ -108,6 +110,13 @@ def heartbeat_worker(stop_event: threading.Event) -> None:
 
     while not stop_event.is_set():
         try:
+            if (
+                state.register_disabled_until
+                and datetime.now(UTC) < state.register_disabled_until
+            ):
+                stop_event.wait(settings.heartbeat_interval_sec)
+                continue
+
             if state.session_token is None:
                 register_host(client, state)
 
@@ -120,6 +129,17 @@ def heartbeat_worker(stop_event: threading.Event) -> None:
 
             send_heartbeat(client, state)
         except httpx.HTTPStatusError as exc:
+            if (
+                exc.response.status_code == 403
+                and "host disabled" in exc.response.text.lower()
+            ):
+                state.register_disabled_until = datetime.now(UTC) + timedelta(
+                    seconds=60
+                )
+                logger.warning(
+                    "heartbeat paused: host disabled by control-plane host_id=%s",
+                    settings.host_id,
+                )
             logger.warning(
                 "heartbeat cycle failed: status=%s url=%s body=%s",
                 exc.response.status_code,

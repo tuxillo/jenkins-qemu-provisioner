@@ -163,6 +163,22 @@ th {
   color: var(--warn);
 }
 
+.host-available {
+  background: #e9f8ef;
+  color: var(--ok);
+}
+
+.host-stale,
+.host-unavailable {
+  background: #fff3e8;
+  color: var(--warn);
+}
+
+.host-disabled {
+  background: #fdeceb;
+  color: var(--bad);
+}
+
 .scroll {
   max-height: 420px;
   overflow: auto;

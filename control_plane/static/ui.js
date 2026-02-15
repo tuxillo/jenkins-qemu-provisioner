@@ -41,10 +41,10 @@
       .map((h) => {
         const cpuUse = h.cpu_total > 0 ? Math.round(((h.cpu_total - h.cpu_free) / h.cpu_total) * 100) : 0;
         const ramUse = h.ram_total_mb > 0 ? Math.round(((h.ram_total_mb - h.ram_free_mb) / h.ram_total_mb) * 100) : 0;
-        const status = h.enabled ? "enabled" : "disabled";
+        const availability = h.availability || (h.enabled ? "AVAILABLE" : "DISABLED");
         return `<tr>
           <td>${h.host_id}</td>
-          <td>${status}</td>
+          <td><span class="badge host-${availability.toLowerCase()}">${availability}</span></td>
           <td>${h.cpu_free}/${h.cpu_total} (${cpuUse}%)</td>
           <td>${h.ram_free_mb}/${h.ram_total_mb} MB (${ramUse}%)</td>
           <td>${h.io_pressure.toFixed(2)}</td>
