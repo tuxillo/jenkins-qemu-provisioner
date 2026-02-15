@@ -12,8 +12,9 @@ command="/usr/sbin/daemon"
 procname="/opt/jenkins-qemu-node-agent/venv/bin/uvicorn"
 uvicorn_args="node_agent.main:app --host 0.0.0.0 --port 9000"
 jenkins_qemu_node_agent_user="jenkins-qemu-agent"
-pidfile="/var/run/${name}.pid"
-command_args="-f -p ${pidfile} -u ${jenkins_qemu_node_agent_user} -- ${procname} ${uvicorn_args}"
+rundir="/var/run/${name}"
+pidfile="${rundir}/${name}.pid"
+command_args=""
 
 required_files="/etc/jenkins-qemu-node-agent/env"
 
@@ -21,6 +22,8 @@ start_precmd="${name}_prestart"
 
 jenkins_qemu_node_agent_prestart()
 {
+    install -d -o "${jenkins_qemu_node_agent_user}" -g "${jenkins_qemu_node_agent_user}" -m 0755 "${rundir}"
+    command_args="-f -p ${pidfile} -u ${jenkins_qemu_node_agent_user} -- ${procname} ${uvicorn_args}"
     set -a
     . /etc/jenkins-qemu-node-agent/env
     set +a
