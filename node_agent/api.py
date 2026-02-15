@@ -34,6 +34,30 @@ def _report_vm_status(
         logger.debug("failed posting vm status vm_id=%s state=%s", vm_id, state)
 
 
+def _raise_launch_error(
+    *,
+    settings,
+    vm_id: str,
+    lease_id: str | None,
+    stage: str,
+    status_code: int,
+    reason: str,
+) -> None:
+    logger.error(
+        "ensure_vm failed vm_id=%s lease_id=%s host_id=%s stage=%s reason=%s",
+        vm_id,
+        lease_id,
+        settings.host_id,
+        stage,
+        reason,
+    )
+    _report_vm_status(settings, vm_id, "FAILED", f"{stage}: {reason}")
+    raise HTTPException(
+        status_code=status_code,
+        detail={"vm_id": vm_id, "stage": stage, "reason": reason},
+    )
+
+
 @router.get("/healthz")
 def healthz() -> dict:
     settings = get_agent_settings()
@@ -50,6 +74,9 @@ def healthz() -> dict:
 def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
     settings = get_agent_settings()
     _report_vm_status(settings, vm_id, "PROVISIONING")
+    lease_id = None
+    if isinstance(req.metadata, dict):
+        lease_id = req.metadata.get("lease_id")
     existing = get_vm(vm_id)
     if existing and existing["state"] in {"RUNNING", "BOOTING"}:
         return VMStateResponse(
@@ -62,13 +89,16 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
 
     base_image_path = str(Path(settings.base_image_dir) / f"{req.base_image_id}.qcow2")
     if not settings.dry_run and not Path(base_image_path).exists():
-        _report_vm_status(
-            settings, vm_id, "FAILED", f"base image not found: {base_image_path}"
-        )
-        raise HTTPException(
-            status_code=400, detail=f"base image not found: {base_image_path}"
+        _raise_launch_error(
+            settings=settings,
+            vm_id=vm_id,
+            lease_id=lease_id,
+            stage="base_image",
+            status_code=400,
+            reason=f"base image not found: {base_image_path}",
         )
 
+    runtime_paths = None
     try:
         runtime_paths = write_cloud_init_files(
             settings=settings,
@@ -79,12 +109,24 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
             jnlp_secret=req.jnlp_secret,
         )
     except Exception as exc:  # noqa: BLE001
-        _report_vm_status(settings, vm_id, "FAILED", f"cloud-init failed: {exc}")
-        logger.exception("failed writing cloud-init vm_id=%s error=%s", vm_id, exc)
-        raise HTTPException(
+        _raise_launch_error(
+            settings=settings,
+            vm_id=vm_id,
+            lease_id=lease_id,
+            stage="cloud_init",
             status_code=500,
-            detail=f"cloud-init generation failed for {vm_id}: {exc}",
-        ) from exc
+            reason=f"cloud-init generation failed: {exc}",
+        )
+    if runtime_paths is None:
+        _raise_launch_error(
+            settings=settings,
+            vm_id=vm_id,
+            lease_id=lease_id,
+            stage="cloud_init",
+            status_code=500,
+            reason="cloud-init generation failed: unknown error",
+        )
+    assert runtime_paths is not None
 
     if req.overlay_path:
         runtime_paths.overlay_path = req.overlay_path
@@ -93,20 +135,14 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
         try:
             create_overlay(base_image_path, runtime_paths.overlay_path)
         except Exception as exc:  # noqa: BLE001
-            _report_vm_status(
-                settings, vm_id, "FAILED", f"overlay creation failed: {exc}"
-            )
-            logger.exception(
-                "failed creating overlay vm_id=%s base=%s overlay=%s error=%s",
-                vm_id,
-                base_image_path,
-                runtime_paths.overlay_path,
-                exc,
-            )
-            raise HTTPException(
+            _raise_launch_error(
+                settings=settings,
+                vm_id=vm_id,
+                lease_id=lease_id,
+                stage="overlay",
                 status_code=500,
-                detail=f"overlay creation failed for {vm_id}: {exc}",
-            ) from exc
+                reason=f"overlay creation failed: {exc}",
+            )
     else:
         Path(runtime_paths.overlay_path).parent.mkdir(parents=True, exist_ok=True)
         Path(runtime_paths.overlay_path).touch(exist_ok=True)
@@ -121,19 +157,27 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
         ram_mb=req.ram_mb,
         disk_interface=settings.disk_interface,
     )
+    pid = 0
     try:
         pid = launch_qemu(cmd, dry_run=settings.dry_run)
     except Exception as exc:  # noqa: BLE001
-        _report_vm_status(settings, vm_id, "FAILED", f"qemu launch failed: {exc}")
-        logger.exception("failed launching qemu vm_id=%s error=%s", vm_id, exc)
-        raise HTTPException(
+        _raise_launch_error(
+            settings=settings,
+            vm_id=vm_id,
+            lease_id=lease_id,
+            stage="qemu_launch",
             status_code=500,
-            detail=f"qemu launch failed for {vm_id}: {exc}",
-        ) from exc
-
-    lease_id = None
-    if isinstance(req.metadata, dict):
-        lease_id = req.metadata.get("lease_id")
+            reason=f"qemu launch failed: {exc}",
+        )
+    if pid <= 0 and not settings.dry_run:
+        _raise_launch_error(
+            settings=settings,
+            vm_id=vm_id,
+            lease_id=lease_id,
+            stage="qemu_launch",
+            status_code=500,
+            reason="qemu launch failed: missing process pid",
+        )
 
     upsert_vm(
         vm_id=vm_id,

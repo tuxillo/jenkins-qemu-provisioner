@@ -52,9 +52,7 @@ def request_with_retry(
             status_code = exc.response.status_code
             response_text = exc.response.text
             body = (exc.response.text or "").strip()
-            detail = (
-                f"HTTP {status_code}: {body[:240]}" if body else f"HTTP {status_code}"
-            )
+            detail = f"HTTP {status_code}: {body}" if body else f"HTTP {status_code}"
             error_type = exc.__class__.__name__
         except httpx.RequestError as exc:
             error = exc
