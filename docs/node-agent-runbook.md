@@ -69,6 +69,7 @@ Service status is tracked via the daemon wrapper process.
   - Ensure `NODE_AGENT_QEMU_ACCEL` matches runtime support and OS family.
 - Host not schedulable
   - Verify heartbeat reaches control-plane and host is `enabled=true`.
+  - Verify host free capacity is non-zero in control-plane (`cpu_free`, `ram_free_mb`).
 - VM launches fail on Linux
   - Validate KVM availability and QEMU permissions (`/dev/kvm`).
 - VM launches fail on DragonFlyBSD

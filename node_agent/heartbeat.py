@@ -74,14 +74,17 @@ def send_heartbeat(client: httpx.Client, state: ControlPlaneSession) -> None:
     if not state.session_token:
         raise RuntimeError("missing session token")
 
+    cpu_total = os.cpu_count() or 1
+    ram_total_mb = max(_detect_total_ram_mb(), 256)
+
     running_ids = [
         r.get("vm_id")
         for r in list_vms()
         if r.get("state") in {"RUNNING", "BOOTING", "PROVISIONING"}
     ]
     payload = {
-        "cpu_free": 0,
-        "ram_free_mb": 0,
+        "cpu_free": cpu_total,
+        "ram_free_mb": ram_total_mb,
         "io_pressure": 0.0,
         "running_vm_ids": running_ids,
         "os_family": settings.os_family,

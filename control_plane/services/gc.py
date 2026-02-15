@@ -16,6 +16,8 @@ def gc_hosts_once() -> None:
     with session_scope() as session:
         hosts = list(session.scalars(select(Host)))
         for host in hosts:
+            if not host.enabled:
+                continue
             if host.last_seen and host.last_seen < cutoff:
                 write_event(
                     session,
