@@ -8,10 +8,12 @@
 name="jenkins_qemu_node_agent"
 rcvar=jenkins_qemu_node_agent_enable
 
-command="/opt/jenkins-qemu-node-agent/venv/bin/uvicorn"
-command_args="node_agent.main:app --host 0.0.0.0 --port 9000"
+command="/usr/sbin/daemon"
+procname="/opt/jenkins-qemu-node-agent/venv/bin/uvicorn"
+uvicorn_args="node_agent.main:app --host 0.0.0.0 --port 9000"
+jenkins_qemu_node_agent_user="jenkins-qemu-agent"
 pidfile="/var/run/${name}.pid"
-procname="${command}"
+command_args="-f -P ${pidfile} -u ${jenkins_qemu_node_agent_user} ${procname} ${uvicorn_args}"
 
 required_files="/etc/jenkins-qemu-node-agent/env"
 

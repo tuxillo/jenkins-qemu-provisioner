@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import time
 from datetime import UTC, datetime
@@ -18,6 +19,20 @@ class ControlPlaneSession:
         self.session_expires_at: datetime | None = None
 
 
+def _detect_total_ram_mb() -> int:
+    fallback_mb = 1024
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        page_count = os.sysconf("SC_PHYS_PAGES")
+        if isinstance(page_size, int) and isinstance(page_count, int):
+            total_mb = (page_size * page_count) // (1024 * 1024)
+            if total_mb > 0:
+                return total_mb
+    except (ValueError, OSError, AttributeError):
+        pass
+    return fallback_mb
+
+
 def _base_headers(token: str | None) -> dict[str, str]:
     if not token:
         return {}
@@ -26,15 +41,13 @@ def _base_headers(token: str | None) -> dict[str, str]:
 
 def register_host(client: httpx.Client, state: ControlPlaneSession) -> None:
     settings = get_agent_settings()
+    cpu_total = os.cpu_count() or 1
+    ram_total_mb = max(_detect_total_ram_mb(), 256)
     payload = {
         "agent_version": "0.1.0",
         "qemu_version": "unknown",
-        "cpu_total": (
-            1
-            if not hasattr(__import__("os"), "cpu_count")
-            else (__import__("os").cpu_count() or 1)
-        ),
-        "ram_total_mb": 0,
+        "cpu_total": cpu_total,
+        "ram_total_mb": ram_total_mb,
         "base_image_ids": [],
         "addr": f"{settings.bind_host}:{settings.bind_port}",
         "os_family": settings.os_family,
@@ -103,6 +116,17 @@ def heartbeat_worker(stop_event: threading.Event) -> None:
                 continue
 
             send_heartbeat(client, state)
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "heartbeat cycle failed: status=%s url=%s body=%s",
+                exc.response.status_code,
+                exc.request.url,
+                exc.response.text,
+            )
+            state.session_token = None
+        except httpx.HTTPError as exc:
+            logger.warning("heartbeat cycle failed: %s", exc)
+            state.session_token = None
         except Exception as exc:  # noqa: BLE001
             logger.warning("heartbeat cycle failed: %s", exc)
             state.session_token = None

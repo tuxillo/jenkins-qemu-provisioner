@@ -23,6 +23,10 @@ Then edit `/etc/jenkins-qemu-node-agent/env`:
 - `NODE_AGENT_OS_FAMILY` (`linux` or `dragonflybsd`)
 - `NODE_AGENT_QEMU_ACCEL` (`kvm` for linux, `nvmm` for dragonflybsd)
 
+`NODE_AGENT_HOST_ID` and `NODE_AGENT_BOOTSTRAP_TOKEN` must match a host record in
+the control-plane (or run control-plane with unknown host registration enabled in
+dev mode).
+
 ## 2) Linux service management (systemd)
 
 ```bash
@@ -41,6 +45,9 @@ echo 'jenkins_qemu_node_agent_enable="YES"' | sudo tee -a /etc/rc.conf
 sudo service jenkins_qemu_node_agent start
 sudo service jenkins_qemu_node_agent status
 ```
+
+The rc.d service wraps uvicorn with `/usr/sbin/daemon`, so it runs detached with
+pidfile `/var/run/jenkins_qemu_node_agent.pid`.
 
 ## 4) Validation
 
@@ -67,5 +74,11 @@ sudo service jenkins_qemu_node_agent status
 - Install fails building `pydantic-core` with a `maturin`/Cargo `edition2024` error
   - Keep the default DragonFlyBSD installer constraint (`maturin>=1.9.4,<1.10`) for Cargo 1.79.
   - Long-term fix is upgrading Rust/Cargo so the constraint can be removed.
+- Host register returns `422 Unprocessable Entity`
+  - Ensure register payload values meet API minimums (for example `ram_total_mb >= 256`).
+  - Check node-agent logs for response body details.
+- Host register returns `401` or `404`
+  - Verify `NODE_AGENT_HOST_ID` and `NODE_AGENT_BOOTSTRAP_TOKEN` against control-plane records.
+  - In dev only, set `ALLOW_UNKNOWN_HOST_REGISTRATION=true` on control-plane.
 - Orphan overlays
   - Safety loop cleans unknown overlays in overlay directory; verify path settings.
