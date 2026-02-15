@@ -49,6 +49,7 @@ sudo service jenkins_qemu_node_agent status
 The rc.d service wraps uvicorn with `/usr/sbin/daemon`, so it runs detached with
 pidfile `/var/run/jenkins_qemu_node_agent/jenkins_qemu_node_agent.pid`.
 Privilege drop is handled by `daemon -u jenkins-qemu-agent`.
+Service status is tracked via the daemon wrapper process.
 
 ## 4) Validation
 
@@ -84,5 +85,8 @@ Privilege drop is handled by `daemon -u jenkins-qemu-agent`.
 - `daemon: ppidfile ... Permission denied` on DragonFlyBSD
   - Update to latest `deploy/rc.d/jenkins_qemu_node_agent` and recopy it to `/usr/local/etc/rc.d/`.
   - Restart service after updating the script.
+- `daemon: process already running` but rc.d says `is not running`
+  - Update to latest `deploy/rc.d/jenkins_qemu_node_agent` and restart service.
+  - The script now tracks daemon pid correctly and removes stale pidfiles before start.
 - Orphan overlays
   - Safety loop cleans unknown overlays in overlay directory; verify path settings.
