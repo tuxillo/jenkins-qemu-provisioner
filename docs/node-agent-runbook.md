@@ -80,5 +80,8 @@ pidfile `/var/run/jenkins_qemu_node_agent.pid`.
 - Host register returns `401` or `404`
   - Verify `NODE_AGENT_HOST_ID` and `NODE_AGENT_BOOTSTRAP_TOKEN` against control-plane records.
   - In dev only, set `ALLOW_UNKNOWN_HOST_REGISTRATION=true` on control-plane.
+- `daemon: ppidfile ... Permission denied` on DragonFlyBSD
+  - Update to latest `deploy/rc.d/jenkins_qemu_node_agent` and recopy it to `/usr/local/etc/rc.d/`.
+  - Restart service after updating the script.
 - Orphan overlays
   - Safety loop cleans unknown overlays in overlay directory; verify path settings.
