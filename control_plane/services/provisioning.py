@@ -41,6 +41,8 @@ def build_jenkins_cloud_init_user_data(
     *, jenkins_url: str, jenkins_node_name: str, jnlp_secret: str
 ) -> str:
     normalized_url = jenkins_url.rstrip("/")
+    env_path_primary = "/usr/local/etc/jenkins-qemu/jenkins-agent.env"
+    env_path_fallback = "/etc/jenkins-agent.env"
     env_file = textwrap.dedent(
         f"""\
         JENKINS_URL={_shell_single_quote(normalized_url)}
@@ -52,7 +54,17 @@ def build_jenkins_cloud_init_user_data(
         """\
         #!/bin/sh
         set -eu
-        . /etc/jenkins-agent.env
+
+        ENV_PRIMARY=/usr/local/etc/jenkins-qemu/jenkins-agent.env
+        ENV_FALLBACK=/etc/jenkins-agent.env
+        if [ -f "$ENV_PRIMARY" ]; then
+          . "$ENV_PRIMARY"
+        elif [ -f "$ENV_FALLBACK" ]; then
+          . "$ENV_FALLBACK"
+        else
+          echo "missing jenkins agent env file" >&2
+          exit 1
+        fi
 
         AGENT_DIR=/opt/jenkins-agent
         AGENT_JAR="$AGENT_DIR/agent.jar"
@@ -88,18 +100,20 @@ def build_jenkins_cloud_init_user_data(
         f"""\
         #cloud-config
         write_files:
-          - path: /etc/jenkins-agent.env
+          - path: {env_path_primary}
             permissions: '0600'
-            owner: root:root
+            content: |
+{textwrap.indent(env_file, "              ")}
+          - path: {env_path_fallback}
+            permissions: '0600'
             content: |
 {textwrap.indent(env_file, "              ")}
           - path: /usr/local/bin/start-jenkins-inbound-agent.sh
             permissions: '0755'
-            owner: root:root
             content: |
 {textwrap.indent(bootstrap_script, "              ")}
         runcmd:
-          - [ sh, -lc, "nohup /usr/local/bin/start-jenkins-inbound-agent.sh >> /var/log/jenkins-agent-bootstrap.log 2>&1 &" ]
+          - [ /usr/bin/env, bash, -c, "nohup /usr/local/bin/start-jenkins-inbound-agent.sh >> /var/log/jenkins-agent-bootstrap.log 2>&1 &" ]
         """
     )
 

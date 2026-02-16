@@ -79,6 +79,7 @@ and keep using the same qcow2 as your base image.
 Minimum guest requirements for automatic Jenkins inbound bootstrap:
 
 - `cloud-init` enabled in the base image
+- `bash` available in PATH (`/usr/local/bin/bash` on DragonFlyBSD)
 - Java available in PATH (`java`)
 - `curl` or `fetch` available to download `agent.jar`
 
@@ -124,6 +125,7 @@ Useful flags:
   - Verify base image exists at `NODE_AGENT_BASE_IMAGE_DIR/<base_image_id>.qcow2`.
   - Check node-agent logs for launch stage details (`cloud-init`, overlay, `qemu` command).
   - Verify `NODE_AGENT_ADVERTISE_ADDR` resolves from control-plane and matches node-agent bind/listen port.
+  - For Jenkins bootstrap env, cloud-init writes `/usr/local/etc/jenkins-qemu/jenkins-agent.env` (fallback `/etc/jenkins-agent.env`).
 
 - Need guest boot serial output for debugging
   - Per-VM serial console is written to `NODE_AGENT_CLOUD_INIT_DIR/<vm_id>/serial.log`.
