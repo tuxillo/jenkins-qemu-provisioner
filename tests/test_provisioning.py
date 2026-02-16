@@ -6,6 +6,7 @@ from control_plane.db import Base, SessionLocal, engine
 from control_plane.models import Lease, LeaseState
 from control_plane.services.provisioning import (
     build_jenkins_cloud_init_user_data,
+    normalize_node_label,
     provision_one,
 )
 
@@ -16,10 +17,10 @@ class FakeJenkins:
         self.deleted = []
         self.fail_create = fail_create
 
-    def create_ephemeral_node(self, node_name: str, _label: str):
+    def create_ephemeral_node(self, node_name: str, label: str):
         if self.fail_create:
             raise RuntimeError("create failed")
-        self.created.append(node_name)
+        self.created.append((node_name, label))
 
     def get_inbound_secret(self, _node_name: str) -> str:
         return "secret"
@@ -72,6 +73,15 @@ def test_cloud_init_user_data_contains_inbound_bootstrap_script():
     assert 'curl -fsSL "$JENKINS_URL/jnlpJars/agent.jar"' in user_data
     assert '-name "$JENKINS_NODE_NAME"' in user_data
     assert "JENKINS_JNLP_SECRET='abc123'" in user_data
+
+
+def test_normalize_node_label_strips_expression_operators():
+    assert normalize_node_label("linux-kvm || dragonflybsd-nvmm") == (
+        "linux-kvm dragonflybsd-nvmm"
+    )
+    assert normalize_node_label("(linux && x86_64) || (dragonflybsd && nvmm)") == (
+        "linux x86_64 dragonflybsd nvmm"
+    )
 
 
 def test_provision_failure_marks_failed_and_rolls_back_node():

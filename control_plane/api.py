@@ -145,7 +145,7 @@ def metrics_endpoint() -> dict[str, int]:
 @router.get("/ui", response_class=HTMLResponse)
 def ui_dashboard(db: Session = Depends(get_db)) -> HTMLResponse:
     snapshot = _build_snapshot(db)
-    snapshot_json = json.dumps(snapshot)
+    snapshot_json = json.dumps(snapshot).replace("<", "\\u003c")
     html = f"""<!doctype html>
 <html lang=\"en\">
   <head>

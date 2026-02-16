@@ -1,4 +1,5 @@
 import base64
+import re
 import textwrap
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -16,6 +17,20 @@ NODE_PROFILES = {
     "medium": {"vcpu": 4, "ram_mb": 8192, "disk_gb": 80},
     "large": {"vcpu": 8, "ram_mb": 16384, "disk_gb": 120},
 }
+
+
+def normalize_node_label(label: str) -> str:
+    tokens = re.split(r"[^A-Za-z0-9_.:-]+", label)
+    cleaned: list[str] = []
+    for token in tokens:
+        if not token:
+            continue
+        lowered = token.lower()
+        if lowered in {"and", "or", "not", "true", "false"}:
+            continue
+        if token not in cleaned:
+            cleaned.append(token)
+    return " ".join(cleaned) if cleaned else "ephemeral"
 
 
 def _shell_single_quote(value: str) -> str:
@@ -153,6 +168,7 @@ def provision_one(
         lease.vm_id = f"vm-{lease_id[:12]}"
         lease.jenkins_node = f"ephemeral-{lease_id[:12]}"
     profile = NODE_PROFILES[choose_profile(label)]
+    node_label = normalize_node_label(label)
     with session_scope() as session:
         existing = session.get(Lease, lease.lease_id)
         if existing and existing.state in {
@@ -175,7 +191,7 @@ def provision_one(
         )
 
     try:
-        jenkins.create_ephemeral_node(lease.jenkins_node, label)
+        jenkins.create_ephemeral_node(lease.jenkins_node, node_label)
         secret = jenkins.get_inbound_secret(lease.jenkins_node)
         user_data = build_jenkins_cloud_init_user_data(
             jenkins_url=settings.jenkins_url,

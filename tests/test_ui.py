@@ -59,3 +59,27 @@ def test_ui_snapshot_filters_noisy_heartbeat_events() -> None:
 
     assert "lease.created" in event_types
     assert "host.heartbeat" not in event_types
+
+
+def test_ui_snapshot_escapes_html_like_event_payload() -> None:
+    payload = {
+        "error": "oops </script><script>alert(1)</script>",
+        "host_id": "h1",
+    }
+    with SessionLocal() as db:
+        db.add(Event(event_type="lease.failed", payload_json=json.dumps(payload)))
+        db.commit()
+
+    client = TestClient(app)
+    response = client.get("/ui")
+    assert response.status_code == 200
+    assert "</script><script>alert(1)</script>" not in response.text
+    assert "\\u003c/script>" in response.text
+
+    match = re.search(
+        r'<script id="cp-snapshot" type="application/json">(.*)</script>',
+        response.text,
+    )
+    assert match is not None
+    snapshot = json.loads(match.group(1))
+    assert snapshot["events"][0]["event_type"] == "lease.failed"
