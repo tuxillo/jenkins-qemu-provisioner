@@ -82,6 +82,23 @@ Minimum guest requirements for automatic Jenkins inbound bootstrap:
 - Java available in PATH (`java`)
 - `curl` or `fetch` available to download `agent.jar`
 
+DragonFlyBSD cloud-init datasource guard (required on some images):
+
+- If cloud-init crashes during datasource import (for example `DataSourceAzure` +
+  Python `crypt` traceback), pin datasource selection to NoCloud in the base image.
+- Inside the customization VM, run as root:
+
+```bash
+./deploy/apply-cloud-init-nocloud-fix.sh
+reboot
+```
+
+- The script writes `/etc/cloud/cloud.cfg.d/99-datasource-nocloud.cfg` with:
+  - `datasource_list: [ NoCloud, None ]`
+- After reboot, verify:
+  - `cloud-init status --long`
+  - `grep -i datasource /var/log/cloud-init.log`
+
 Useful flags:
 
 - `--accel auto|kvm|nvmm|tcg`

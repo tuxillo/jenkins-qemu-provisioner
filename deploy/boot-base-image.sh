@@ -195,6 +195,9 @@ echo "  network: $NETWORK_BACKEND"
 if [ -n "$SSH_FORWARD_PORT" ]; then
   echo "  ssh forward: localhost:${SSH_FORWARD_PORT} -> guest:22"
 fi
+if [ "$(uname -s)" = "DragonFly" ]; then
+  echo "  note: if cloud-init fails on datasource import, run ./deploy/apply-cloud-init-nocloud-fix.sh inside the guest"
+fi
 printf '  command: %q ' "${CMD[@]}"
 printf '\n'
 
