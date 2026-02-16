@@ -101,7 +101,7 @@ button {
 .layout {
   display: grid;
   gap: 12px;
-  grid-template-columns: 1.2fr 1fr;
+  grid-template-columns: 1fr;
 }
 
 .panel {
@@ -121,7 +121,6 @@ table {
   border-collapse: collapse;
   font-size: 0.85rem;
   table-layout: fixed;
-  min-width: 980px;
 }
 
 th,

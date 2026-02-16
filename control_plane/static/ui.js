@@ -165,17 +165,6 @@
 
       <section class="layout">
         <article class="panel">
-          <h2>Leases</h2>
-          <div class="scroll">
-            <table>
-              <thead>
-                <tr><th>Lease</th><th>Label</th><th>State</th><th>Host</th><th>VM</th><th>Jenkins Node</th><th>Error</th></tr>
-              </thead>
-              <tbody>${leaseRows()}</tbody>
-            </table>
-          </div>
-        </article>
-        <article class="panel">
           <h2>Hosts</h2>
           <div class="scroll">
             <table>
@@ -183,6 +172,17 @@
                 <tr><th>Host</th><th>Status</th><th>Platform</th><th>Addr</th><th>CPU</th><th>RAM</th><th>IO</th><th>Last Seen</th></tr>
               </thead>
               <tbody>${hostRows()}</tbody>
+            </table>
+          </div>
+        </article>
+        <article class="panel">
+          <h2>Leases</h2>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr><th>Lease</th><th>Label</th><th>State</th><th>Host</th><th>VM</th><th>Jenkins Node</th><th>Error</th></tr>
+              </thead>
+              <tbody>${leaseRows()}</tbody>
             </table>
           </div>
         </article>
