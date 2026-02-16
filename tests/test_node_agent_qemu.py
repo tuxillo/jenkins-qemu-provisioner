@@ -15,11 +15,16 @@ def test_qemu_builder_linux_kvm() -> None:
     )
     assert "-accel" in cmd
     assert "kvm" in cmd
+    assert any("id=cidata" in item and "media=cdrom" in item for item in cmd)
+    assert "scsi-cd,drive=cidata,bus=scsi0.0" in cmd
 
 
 def test_qemu_builder_dragonflybsd_nvmm() -> None:
     settings = AgentSettings(
-        os_family="dragonflybsd", qemu_accel="nvmm", disable_workers=True
+        os_family="bsd",
+        os_flavor="dragonflybsd",
+        qemu_accel="nvmm",
+        disable_workers=True,
     )
     cmd = build_qemu_command(
         settings,
@@ -32,3 +37,5 @@ def test_qemu_builder_dragonflybsd_nvmm() -> None:
     )
     assert "-accel" in cmd
     assert "nvmm" in cmd
+    assert any("id=cidata" in item and "media=cdrom" in item for item in cmd)
+    assert "scsi-cd,drive=cidata,bus=scsi0.0" in cmd

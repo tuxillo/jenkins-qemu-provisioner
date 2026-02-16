@@ -156,7 +156,11 @@ def build_qemu_command(
         "-drive",
         f"if={disk_if},file={overlay_path},format=qcow2,cache=none",
         "-drive",
-        f"if={disk_if},file={cloud_init_iso},format=raw,readonly=on",
+        f"if=none,id=cidata,file={cloud_init_iso},format=raw,readonly=on,media=cdrom",
+        "-device",
+        "virtio-scsi-pci,id=scsi0",
+        "-device",
+        "scsi-cd,drive=cidata,bus=scsi0.0",
     ]
 
     if settings.network_backend == "bridge":

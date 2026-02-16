@@ -128,6 +128,7 @@ Useful flags:
 - Need guest boot serial output for debugging
   - Per-VM serial console is written to `NODE_AGENT_CLOUD_INIT_DIR/<vm_id>/serial.log`.
   - Example: `tail -f /var/lib/jenkins-qemu/cloud-init/<vm_id>/serial.log`.
+  - Cloud-init seed is attached as explicit CD-ROM (`cidata`) for NoCloud detection.
 - VM launches fail on Linux
   - Validate KVM availability and QEMU permissions (`/dev/kvm`).
 - VM launches fail on DragonFlyBSD
