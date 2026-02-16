@@ -82,7 +82,17 @@ class JenkinsClient:
         self._post_with_crumb(url)
 
     def get_inbound_secret(self, node_name: str) -> str:
-        # Jenkins API shape depends on version; this endpoint works for common setups.
+        api_url = f"{self.base_url}/computer/{node_name}/api/json?tree=jnlpMac"
+        try:
+            response = request_with_retry(self.client, "GET", api_url, self.retry)
+            payload = response.json()
+            token = payload.get("jnlpMac")
+            if isinstance(token, str) and token:
+                return token
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Fallback for Jenkins variants that do not expose jnlpMac in JSON API.
         url = f"{self.base_url}/computer/{node_name}/slave-agent.jnlp"
         response = request_with_retry(self.client, "GET", url, self.retry)
         text = response.text
@@ -101,29 +111,24 @@ class JenkinsClient:
     def _post_with_crumb(self, url: str, **kwargs: Any) -> None:
         request_kwargs = dict(kwargs)
         request_kwargs.setdefault("follow_redirects", True)
-        try:
-            response = self.client.request("POST", url, **request_kwargs)
-            if response.status_code == 403 and "crumb" in response.text.lower():
-                crumb = self._fetch_crumb()
-                raw_headers = request_kwargs.get("headers")
-                headers: dict[str, str] = {}
-                if isinstance(raw_headers, dict):
-                    headers = {
-                        str(key): str(value)
-                        for key, value in raw_headers.items()
-                        if isinstance(key, str) and isinstance(value, str)
-                    }
-                headers[crumb["field"]] = crumb["value"]
-                request_kwargs["headers"] = headers
-                request_with_retry(
-                    self.client, "POST", url, self.retry, **request_kwargs
-                )
-                return
+        raw_headers = request_kwargs.get("headers")
+        headers: dict[str, str] = {}
+        if isinstance(raw_headers, dict):
+            headers = {
+                str(key): str(value)
+                for key, value in raw_headers.items()
+                if isinstance(key, str) and isinstance(value, str)
+            }
 
-            response.raise_for_status()
-            return
+        try:
+            crumb = self._fetch_crumb()
+            headers[crumb["field"]] = crumb["value"]
+            request_kwargs["headers"] = headers
         except Exception:  # noqa: BLE001
-            request_with_retry(self.client, "POST", url, self.retry, **request_kwargs)
+            if headers:
+                request_kwargs["headers"] = headers
+
+        request_with_retry(self.client, "POST", url, self.retry, **request_kwargs)
 
     def _fetch_crumb(self) -> dict[str, str]:
         url = f"{self.base_url}/crumbIssuer/api/json"
