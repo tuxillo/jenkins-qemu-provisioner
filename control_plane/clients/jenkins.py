@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -54,6 +55,15 @@ class JenkinsClient:
                 name = task_label.get("name")
                 if isinstance(name, str) and name:
                     return name
+
+        why = item.get("why")
+        if isinstance(why, str) and "label" in why:
+            normalized = why.replace("\u2018", "'").replace("\u2019", "'")
+            match = re.search(r"label ['\"]([^'\"]+)['\"]", normalized)
+            if match:
+                label = match.group(1).strip()
+                if label:
+                    return label
 
         return None
 

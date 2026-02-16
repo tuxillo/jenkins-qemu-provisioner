@@ -48,6 +48,31 @@ def test_queue_snapshot_prefers_assigned_label_name(monkeypatch):
     assert snapshot.queued_by_label == {"linux-nvmm": 1}
 
 
+def test_queue_snapshot_extracts_label_from_pipeline_why_message(monkeypatch):
+    payload = {
+        "items": [
+            {
+                "task": {
+                    "name": "part of build #4",
+                    "labelExpression": None,
+                },
+                "assignedLabel": None,
+                "why": "\u2018Jenkins\u2019 doesn\u2019t have label \u2018dragonflybsd-nvmm\u2019",
+            }
+        ]
+    }
+
+    def fake_request(_client, _method, _url, _retry, **_kwargs):
+        return SimpleNamespace(json=lambda: payload)
+
+    monkeypatch.setattr(
+        "control_plane.clients.jenkins.request_with_retry", fake_request
+    )
+    client = JenkinsClient("http://jenkins:8080", "admin", "admin", RetryPolicy(1, 0))
+    snapshot = client.queue_snapshot()
+    assert snapshot.queued_by_label == {"dragonflybsd-nvmm": 1}
+
+
 def test_create_ephemeral_node_fetches_crumb_before_post(monkeypatch):
     calls: list[tuple[str, str, dict]] = []
 
