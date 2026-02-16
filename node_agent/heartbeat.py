@@ -84,14 +84,18 @@ def send_heartbeat(client: httpx.Client, state: ControlPlaneSession) -> None:
     cpu_total = os.cpu_count() or 1
     ram_total_mb = max(_detect_total_ram_mb(), 256)
 
+    rows = list_vms()
     running_ids = [
         r.get("vm_id")
-        for r in list_vms()
+        for r in rows
         if r.get("state") in {"RUNNING", "BOOTING", "PROVISIONING"}
     ]
+    reserved_cpu, reserved_ram_mb = _reserved_capacity(rows)
+    cpu_free = max(cpu_total - reserved_cpu, 0)
+    ram_free_mb = max(ram_total_mb - reserved_ram_mb, 0)
     payload = {
-        "cpu_free": cpu_total,
-        "ram_free_mb": ram_total_mb,
+        "cpu_free": cpu_free,
+        "ram_free_mb": ram_free_mb,
         "io_pressure": 0.0,
         "running_vm_ids": running_ids,
         "os_family": settings.os_family,
@@ -108,6 +112,26 @@ def send_heartbeat(client: httpx.Client, state: ControlPlaneSession) -> None:
         json=payload,
     )
     response.raise_for_status()
+
+
+def _reserved_capacity(rows: list[dict]) -> tuple[int, int]:
+    reserved_cpu = 0
+    reserved_ram_mb = 0
+    active_states = {"RUNNING", "BOOTING", "PROVISIONING"}
+    for row in rows:
+        if row.get("state") not in active_states:
+            continue
+        reserved_cpu += _coerce_nonnegative_int(row.get("vcpu"))
+        reserved_ram_mb += _coerce_nonnegative_int(row.get("ram_mb"))
+    return reserved_cpu, reserved_ram_mb
+
+
+def _coerce_nonnegative_int(value: object) -> int:
+    try:
+        coerced = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+    return coerced if coerced > 0 else 0
 
 
 def heartbeat_worker(stop_event: threading.Event) -> None:

@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS vms (
   state TEXT NOT NULL,
   host_id TEXT,
   lease_id TEXT,
+  vcpu INTEGER,
+  ram_mb INTEGER,
   qemu_pid INTEGER,
   overlay_path TEXT,
   cloud_init_iso TEXT,
@@ -58,6 +60,10 @@ def initialize_state() -> None:
         }
         if "serial_log_path" not in columns:
             conn.execute("ALTER TABLE vms ADD COLUMN serial_log_path TEXT")
+        if "vcpu" not in columns:
+            conn.execute("ALTER TABLE vms ADD COLUMN vcpu INTEGER")
+        if "ram_mb" not in columns:
+            conn.execute("ALTER TABLE vms ADD COLUMN ram_mb INTEGER")
 
 
 def now_iso() -> str:
@@ -70,6 +76,8 @@ def upsert_vm(
     state: str,
     host_id: str,
     lease_id: str | None,
+    vcpu: int,
+    ram_mb: int,
     qemu_pid: int,
     overlay_path: str,
     cloud_init_iso: str,
@@ -82,12 +90,14 @@ def upsert_vm(
     with connection() as conn:
         conn.execute(
             """
-            INSERT INTO vms(vm_id,state,host_id,lease_id,qemu_pid,overlay_path,cloud_init_iso,serial_log_path,created_at,updated_at,connect_deadline,lease_expires_at,reason)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO vms(vm_id,state,host_id,lease_id,vcpu,ram_mb,qemu_pid,overlay_path,cloud_init_iso,serial_log_path,created_at,updated_at,connect_deadline,lease_expires_at,reason)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(vm_id) DO UPDATE SET
               state=excluded.state,
               host_id=excluded.host_id,
               lease_id=excluded.lease_id,
+              vcpu=excluded.vcpu,
+              ram_mb=excluded.ram_mb,
               qemu_pid=excluded.qemu_pid,
               overlay_path=excluded.overlay_path,
               cloud_init_iso=excluded.cloud_init_iso,
@@ -102,6 +112,8 @@ def upsert_vm(
                 state,
                 host_id,
                 lease_id,
+                vcpu,
+                ram_mb,
                 qemu_pid,
                 overlay_path,
                 cloud_init_iso,

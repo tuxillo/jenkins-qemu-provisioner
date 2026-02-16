@@ -224,6 +224,8 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
         state="RUNNING" if not settings.dry_run else "BOOTING",
         host_id=settings.host_id,
         lease_id=lease_id,
+        vcpu=req.vcpu,
+        ram_mb=req.ram_mb,
         qemu_pid=pid,
         overlay_path=runtime_paths.overlay_path,
         cloud_init_iso=runtime_paths.cloud_init_iso,
