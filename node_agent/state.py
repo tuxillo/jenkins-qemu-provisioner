@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS vms (
   qemu_pid INTEGER,
   overlay_path TEXT,
   cloud_init_iso TEXT,
+  serial_log_path TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   connect_deadline TEXT,
@@ -52,6 +53,11 @@ def connection():
 def initialize_state() -> None:
     with connection() as conn:
         conn.executescript(SCHEMA_SQL)
+        columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(vms)").fetchall()
+        }
+        if "serial_log_path" not in columns:
+            conn.execute("ALTER TABLE vms ADD COLUMN serial_log_path TEXT")
 
 
 def now_iso() -> str:
@@ -67,6 +73,7 @@ def upsert_vm(
     qemu_pid: int,
     overlay_path: str,
     cloud_init_iso: str,
+    serial_log_path: str,
     connect_deadline: str | None,
     lease_expires_at: str | None,
     reason: str | None,
@@ -75,8 +82,8 @@ def upsert_vm(
     with connection() as conn:
         conn.execute(
             """
-            INSERT INTO vms(vm_id,state,host_id,lease_id,qemu_pid,overlay_path,cloud_init_iso,created_at,updated_at,connect_deadline,lease_expires_at,reason)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO vms(vm_id,state,host_id,lease_id,qemu_pid,overlay_path,cloud_init_iso,serial_log_path,created_at,updated_at,connect_deadline,lease_expires_at,reason)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(vm_id) DO UPDATE SET
               state=excluded.state,
               host_id=excluded.host_id,
@@ -84,6 +91,7 @@ def upsert_vm(
               qemu_pid=excluded.qemu_pid,
               overlay_path=excluded.overlay_path,
               cloud_init_iso=excluded.cloud_init_iso,
+              serial_log_path=excluded.serial_log_path,
               updated_at=excluded.updated_at,
               connect_deadline=excluded.connect_deadline,
               lease_expires_at=excluded.lease_expires_at,
@@ -97,6 +105,7 @@ def upsert_vm(
                 qemu_pid,
                 overlay_path,
                 cloud_init_iso,
+                serial_log_path,
                 ts,
                 ts,
                 connect_deadline,

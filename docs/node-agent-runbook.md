@@ -107,6 +107,10 @@ Useful flags:
   - Verify base image exists at `NODE_AGENT_BASE_IMAGE_DIR/<base_image_id>.qcow2`.
   - Check node-agent logs for launch stage details (`cloud-init`, overlay, `qemu` command).
   - Verify `NODE_AGENT_ADVERTISE_ADDR` resolves from control-plane and matches node-agent bind/listen port.
+
+- Need guest boot serial output for debugging
+  - Per-VM serial console is written to `NODE_AGENT_CLOUD_INIT_DIR/<vm_id>/serial.log`.
+  - Example: `tail -f /var/lib/jenkins-qemu/cloud-init/<vm_id>/serial.log`.
 - VM launches fail on Linux
   - Validate KVM availability and QEMU permissions (`/dev/kvm`).
 - VM launches fail on DragonFlyBSD

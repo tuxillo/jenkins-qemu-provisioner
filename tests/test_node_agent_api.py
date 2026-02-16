@@ -52,9 +52,11 @@ def test_ensure_vm_idempotent() -> None:
     p = _payload(vm_id)
     r1 = client.put(f"/v1/vms/{vm_id}", json=p)
     assert r1.status_code == 200
+    assert r1.json()["serial_log_path"].endswith(f"/{vm_id}/serial.log")
     r2 = client.put(f"/v1/vms/{vm_id}", json=p)
     assert r2.status_code == 200
     assert r2.json()["vm_id"] == vm_id
+    assert r2.json()["serial_log_path"].endswith(f"/{vm_id}/serial.log")
 
 
 def test_delete_vm_endpoint() -> None:

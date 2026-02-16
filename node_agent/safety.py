@@ -22,14 +22,17 @@ def _parse_dt(value: str | None) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            return parsed.astimezone(UTC).replace(tzinfo=None)
+        return parsed
     except ValueError:
         return None
 
 
 def enforce_ttl_once() -> None:
     settings = get_agent_settings()
-    now = datetime.now(UTC)
+    now = datetime.now(UTC).replace(tzinfo=None)
     for vm in list_vms():
         ttl = _parse_dt(vm.get("lease_expires_at"))
         if ttl and now > ttl:

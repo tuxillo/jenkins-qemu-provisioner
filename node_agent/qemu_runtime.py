@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 class RuntimePaths:
     overlay_path: str
     cloud_init_iso: str
+    serial_log_path: str
 
 
 def decode_user_data(encoded: str) -> str:
@@ -35,6 +36,7 @@ def write_cloud_init_files(
     user_data_path = vm_dir / "user-data"
     meta_data_path = vm_dir / "meta-data"
     iso_path = vm_dir / "cidata.iso"
+    serial_log_path = vm_dir / "serial.log"
 
     user_data_path.write_text(decode_user_data(user_data_b64), encoding="utf-8")
     meta_data_path.write_text(
@@ -89,7 +91,11 @@ def write_cloud_init_files(
         iso_path.write_bytes(b"")
 
     overlay_path = str(Path(settings.overlay_dir) / f"{vm_id}.qcow2")
-    return RuntimePaths(overlay_path=overlay_path, cloud_init_iso=str(iso_path))
+    return RuntimePaths(
+        overlay_path=overlay_path,
+        cloud_init_iso=str(iso_path),
+        serial_log_path=str(serial_log_path),
+    )
 
 
 def shutil_which_first(candidates: list[str]) -> str | None:
@@ -118,9 +124,14 @@ def build_qemu_command(
     vcpu: int,
     ram_mb: int,
     disk_interface: str | None = None,
+    serial_log_path: str | None = None,
 ) -> list[str]:
     disk_if = disk_interface or settings.disk_interface
     qmp_path = str(Path(settings.overlay_dir) / f"{vm_id}.qmp.sock")
+
+    serial_path = serial_log_path or str(
+        Path(settings.cloud_init_dir) / vm_id / "serial.log"
+    )
 
     cmd = [
         settings.qemu_binary,
@@ -139,7 +150,7 @@ def build_qemu_command(
         "-display",
         "none",
         "-serial",
-        "mon:stdio",
+        f"file:{serial_path}",
         "-qmp",
         f"unix:{qmp_path},server,nowait",
         "-drive",

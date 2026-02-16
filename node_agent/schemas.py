@@ -26,3 +26,4 @@ class VMStateResponse(BaseModel):
     last_transition_at: str
     reason: str | None = None
     lease_expires_at: str | None = None
+    serial_log_path: str | None = None

@@ -87,6 +87,7 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
             last_transition_at=existing["updated_at"],
             reason=existing.get("reason"),
             lease_expires_at=existing.get("lease_expires_at"),
+            serial_log_path=existing.get("serial_log_path"),
         )
 
     base_image_path = str(Path(settings.base_image_dir) / f"{req.base_image_id}.qcow2")
@@ -158,6 +159,7 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
         vcpu=req.vcpu,
         ram_mb=req.ram_mb,
         disk_interface=settings.disk_interface,
+        serial_log_path=runtime_paths.serial_log_path,
     )
     pid = 0
     try:
@@ -189,6 +191,7 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
         qemu_pid=pid,
         overlay_path=runtime_paths.overlay_path,
         cloud_init_iso=runtime_paths.cloud_init_iso,
+        serial_log_path=runtime_paths.serial_log_path,
         connect_deadline=req.connect_deadline.isoformat(),
         lease_expires_at=req.lease_expires_at.isoformat(),
         reason=None,
@@ -200,6 +203,7 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
         state=state,
         last_transition_at=datetime.now(UTC).isoformat(),
         lease_expires_at=req.lease_expires_at.isoformat(),
+        serial_log_path=runtime_paths.serial_log_path,
     )
 
 
@@ -214,6 +218,7 @@ def vm_state(vm_id: str) -> VMStateResponse:
         last_transition_at=row["updated_at"],
         reason=row.get("reason"),
         lease_expires_at=row.get("lease_expires_at"),
+        serial_log_path=row.get("serial_log_path"),
     )
 
 
