@@ -17,10 +17,12 @@ class FakeJenkins:
         self.deleted = []
         self.fail_create = fail_create
 
-    def create_ephemeral_node(self, node_name: str, label: str):
+    def create_ephemeral_node(
+        self, node_name: str, label: str, *, use_websocket: bool = True
+    ):
         if self.fail_create:
             raise RuntimeError("create failed")
-        self.created.append((node_name, label))
+        self.created.append((node_name, label, use_websocket))
 
     def get_inbound_secret(self, _node_name: str) -> str:
         return "secret"
@@ -68,17 +70,31 @@ def test_cloud_init_user_data_contains_inbound_bootstrap_script():
         jenkins_url="http://jenkins:8080",
         jenkins_node_name="ephemeral-node-1",
         jnlp_secret="abc123",
+        jenkins_agent_transport="websocket",
     )
     assert user_data.startswith("#cloud-config")
     assert 'curl -fsSL "$JENKINS_URL/jnlpJars/agent.jar"' in user_data
     assert '-name "$JENKINS_NODE_NAME"' in user_data
     assert "JENKINS_JNLP_SECRET='abc123'" in user_data
+    assert "JENKINS_AGENT_TRANSPORT='websocket'" in user_data
     assert "/usr/local/etc/jenkins-qemu/jenkins-agent.env" in user_data
     assert "missing jenkins agent env file" in user_data
     assert "[ /usr/bin/env, bash, -c," in user_data
     assert " -lc, " not in user_data
     assert 'echo "$line" | tee -a "$BOOTSTRAP_LOG"' in user_data
+    assert "-webSocket" in user_data
     assert "printf '%s" not in user_data
+
+
+def test_cloud_init_user_data_omits_websocket_flag_for_tcp_transport():
+    user_data = build_jenkins_cloud_init_user_data(
+        jenkins_url="http://jenkins:8080",
+        jenkins_node_name="ephemeral-node-1",
+        jnlp_secret="abc123",
+        jenkins_agent_transport="tcp",
+    )
+    assert "JENKINS_AGENT_TRANSPORT='tcp'" in user_data
+    assert 'AGENT_TRANSPORT_FLAG="-webSocket"' in user_data
 
 
 def test_normalize_node_label_strips_expression_operators():

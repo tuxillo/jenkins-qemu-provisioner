@@ -51,7 +51,9 @@ class JenkinsClient:
 
         return None
 
-    def create_ephemeral_node(self, node_name: str, label: str) -> None:
+    def create_ephemeral_node(
+        self, node_name: str, label: str, *, use_websocket: bool = True
+    ) -> None:
         url = f"{self.base_url}/computer/doCreateItem"
         node_definition = {
             "name": node_name,
@@ -63,6 +65,7 @@ class JenkinsClient:
             "launcher": {
                 "stapler-class": "hudson.slaves.JNLPLauncher",
                 "$class": "hudson.slaves.JNLPLauncher",
+                "webSocket": use_websocket,
             },
             "retentionStrategy": {
                 "stapler-class": "hudson.slaves.RetentionStrategy$Always",

@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -10,6 +11,7 @@ class Settings(BaseSettings):
     jenkins_url: str = Field(default="http://localhost:8080")
     jenkins_user: str = Field(default="admin")
     jenkins_api_token: str = Field(default="admin")
+    jenkins_agent_transport: Literal["websocket", "tcp"] = Field(default="websocket")
 
     database_url: str = Field(default="sqlite:///./control_plane.db")
 

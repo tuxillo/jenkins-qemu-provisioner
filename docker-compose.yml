@@ -7,7 +7,6 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
-      - "50000:50000"
     environment:
       JENKINS_ADMIN_ID: ${JENKINS_ADMIN_ID:-admin}
       JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-admin}
@@ -18,6 +17,7 @@ services:
       JENKINS_BOOTSTRAP_JOB_SLEEP_SEC: ${JENKINS_BOOTSTRAP_JOB_SLEEP_SEC:-60}
       JENKINS_BOOTSTRAP_JOB_UPSERT: ${JENKINS_BOOTSTRAP_JOB_UPSERT:-true}
       JENKINS_CONTROL_PLANE_UI_URL: ${JENKINS_CONTROL_PLANE_UI_URL:-http://localhost:8000/ui}
+      JENKINS_AGENT_TCP_PORT: ${JENKINS_AGENT_TCP_PORT:--1}
       JAVA_OPTS: -Djenkins.install.runSetupWizard=false
     volumes:
       - jenkins_home:/var/jenkins_home
@@ -39,6 +39,7 @@ services:
       JENKINS_URL: ${CP_JENKINS_URL:-http://jenkins:8080}
       JENKINS_USER: ${CP_JENKINS_USER:-admin}
       JENKINS_API_TOKEN: ${CP_JENKINS_API_TOKEN:-admin}
+      JENKINS_AGENT_TRANSPORT: ${CP_JENKINS_AGENT_TRANSPORT:-websocket}
       DATABASE_URL: ${CP_DATABASE_URL:-sqlite:////data/control_plane.db}
       NODE_AGENT_URL: ${CP_NODE_AGENT_URL:-http://fake-node-agent:9000}
       NODE_AGENT_AUTH_TOKEN: ${CP_NODE_AGENT_AUTH_TOKEN:-}

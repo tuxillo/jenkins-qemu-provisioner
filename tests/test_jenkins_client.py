@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 from control_plane.clients.http import RetryPolicy
@@ -55,6 +56,9 @@ def test_create_ephemeral_node_fetches_crumb_before_post(monkeypatch):
         if method == "POST" and url.endswith("/computer/doCreateItem"):
             headers = kwargs.get("headers") or {}
             assert headers.get("Jenkins-Crumb") == "crumb-token"
+            payload = kwargs.get("data") or {}
+            node_json = json.loads(payload.get("json", "{}"))
+            assert node_json.get("launcher", {}).get("webSocket") is True
             return SimpleNamespace()
         if method == "GET" and url.endswith("/crumbIssuer/api/json"):
             return SimpleNamespace(
@@ -75,6 +79,34 @@ def test_create_ephemeral_node_fetches_crumb_before_post(monkeypatch):
     assert len(calls) == 2
     assert calls[0][1].endswith("/crumbIssuer/api/json")
     assert calls[1][2]["headers"]["Jenkins-Crumb"] == "crumb-token"
+
+
+def test_create_ephemeral_node_allows_tcp_transport(monkeypatch):
+    captured_payload: dict | None = None
+
+    def fake_request(_client, method, url, _retry, **kwargs):
+        nonlocal captured_payload
+        if method == "GET" and url.endswith("/crumbIssuer/api/json"):
+            return SimpleNamespace(
+                json=lambda: {
+                    "crumbRequestField": "Jenkins-Crumb",
+                    "crumb": "crumb-token",
+                }
+            )
+        if method == "POST" and url.endswith("/computer/doCreateItem"):
+            payload = kwargs.get("data") or {}
+            captured_payload = json.loads(payload.get("json", "{}"))
+            return SimpleNamespace()
+        return SimpleNamespace()
+
+    monkeypatch.setattr(
+        "control_plane.clients.jenkins.request_with_retry", fake_request
+    )
+    client = JenkinsClient("http://jenkins:8080", "admin", "admin", RetryPolicy(1, 0))
+    client.create_ephemeral_node("ephemeral-1", "linux-kvm", use_websocket=False)
+
+    assert captured_payload is not None
+    assert captured_payload.get("launcher", {}).get("webSocket") is False
 
 
 def test_get_inbound_secret_prefers_json_api(monkeypatch):

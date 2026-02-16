@@ -83,6 +83,12 @@ Minimum guest requirements for automatic Jenkins inbound bootstrap:
 - Java available in PATH (`java`)
 - `curl` or `fetch` available to download `agent.jar`
 
+Transport notes:
+
+- Control-plane defaults to Jenkins WebSocket agent transport (`JENKINS_AGENT_TRANSPORT=websocket`).
+- In WebSocket mode, the guest only needs reachability to Jenkins HTTP(S) URL/port.
+- Classic inbound TCP (`JENKINS_AGENT_TRANSPORT=tcp`) requires Jenkins agent listener reachability (typically port `50000`).
+
 DragonFlyBSD cloud-init datasource guard (required on some images):
 
 - If cloud-init crashes during datasource import (for example `DataSourceAzure` +

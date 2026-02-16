@@ -49,6 +49,8 @@ Local E2E note:
 - Jenkins image includes `antisamy-markup-formatter` so bootstrap can render a clickable Control-plane dashboard button in system message.
 - Jenkins bootstrap injects a Control-plane UI link (`JENKINS_CONTROL_PLANE_UI_URL`) in the Jenkins home message area.
 - Control-plane connect deadline is set to `180s` by default in local compose (`CP_CONNECT_DEADLINE_SEC`) to allow slower boots before recycle.
+- Ephemeral agents default to Jenkins WebSocket transport (`CP_JENKINS_AGENT_TRANSPORT=websocket`), so local dev does not require exposing port `50000`.
+- Jenkins inbound TCP listener is disabled by default in dev (`JENKINS_AGENT_TCP_PORT=-1`).
 - If Jenkins was already initialized, set `JENKINS_BOOTSTRAP_JOB_UPSERT=true` or recreate the `jenkins_home` volume to re-seed job config.
 - If you change `JENKINS_CONTROL_PLANE_UI_URL`, restart Jenkins to refresh the injected UI link.
 

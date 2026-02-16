@@ -4,6 +4,8 @@ import jenkins.model.Jenkins
 
 def adminId = System.getenv("JENKINS_ADMIN_ID") ?: "admin"
 def adminPassword = System.getenv("JENKINS_ADMIN_PASSWORD") ?: "admin"
+def agentTcpPortRaw = System.getenv("JENKINS_AGENT_TCP_PORT") ?: "-1"
+def agentTcpPort = Integer.parseInt(agentTcpPortRaw)
 
 def instance = Jenkins.get()
 
@@ -24,7 +26,7 @@ def strategy = new FullControlOnceLoggedInAuthorizationStrategy()
 strategy.setAllowAnonymousRead(false)
 instance.setAuthorizationStrategy(strategy)
 
-instance.setSlaveAgentPort(50000)
+instance.setSlaveAgentPort(agentTcpPort)
 instance.save()
 
-println("--> Jenkins security configured")
+println("--> Jenkins security configured (agent TCP port: ${agentTcpPort})")

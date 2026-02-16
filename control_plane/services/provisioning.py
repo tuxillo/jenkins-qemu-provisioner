@@ -38,7 +38,11 @@ def _shell_single_quote(value: str) -> str:
 
 
 def build_jenkins_cloud_init_user_data(
-    *, jenkins_url: str, jenkins_node_name: str, jnlp_secret: str
+    *,
+    jenkins_url: str,
+    jenkins_node_name: str,
+    jnlp_secret: str,
+    jenkins_agent_transport: str,
 ) -> str:
     normalized_url = jenkins_url.rstrip("/")
     env_path_primary = "/usr/local/etc/jenkins-qemu/jenkins-agent.env"
@@ -48,6 +52,7 @@ def build_jenkins_cloud_init_user_data(
         JENKINS_URL={_shell_single_quote(normalized_url)}
         JENKINS_NODE_NAME={_shell_single_quote(jenkins_node_name)}
         JENKINS_JNLP_SECRET={_shell_single_quote(jnlp_secret)}
+        JENKINS_AGENT_TRANSPORT={_shell_single_quote(jenkins_agent_transport)}
         """
     )
     bootstrap_script = textwrap.dedent(
@@ -110,8 +115,15 @@ def build_jenkins_cloud_init_user_data(
           exit 1
         fi
 
-        stage "agent_launch_start" "$JENKINS_URL"
+        AGENT_TRANSPORT="${JENKINS_AGENT_TRANSPORT:-websocket}"
+        AGENT_TRANSPORT_FLAG=""
+        if [ "$AGENT_TRANSPORT" = "websocket" ]; then
+          AGENT_TRANSPORT_FLAG="-webSocket"
+        fi
+
+        stage "agent_launch_start" "transport=$AGENT_TRANSPORT url=$JENKINS_URL"
         exec java -jar "$AGENT_JAR" \
+          ${AGENT_TRANSPORT_FLAG:+$AGENT_TRANSPORT_FLAG} \
           -url "$JENKINS_URL" \
           -name "$JENKINS_NODE_NAME" \
           -secret "$JENKINS_JNLP_SECRET" \
@@ -228,12 +240,18 @@ def provision_one(
         )
 
     try:
-        jenkins.create_ephemeral_node(lease.jenkins_node, node_label)
+        use_websocket = settings.jenkins_agent_transport == "websocket"
+        jenkins.create_ephemeral_node(
+            lease.jenkins_node,
+            node_label,
+            use_websocket=use_websocket,
+        )
         secret = jenkins.get_inbound_secret(lease.jenkins_node)
         user_data = build_jenkins_cloud_init_user_data(
             jenkins_url=settings.jenkins_url,
             jenkins_node_name=lease.jenkins_node,
             jnlp_secret=secret,
+            jenkins_agent_transport=settings.jenkins_agent_transport,
         )
         payload = {
             "vm_id": lease.vm_id,
