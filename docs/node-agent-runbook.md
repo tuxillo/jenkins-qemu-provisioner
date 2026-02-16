@@ -65,13 +65,32 @@ Service status is tracked via the daemon wrapper process.
 - Capacity: `curl http://<host>:9000/v1/capacity`
 - In control-plane UI (`/ui`), host should appear with matching platform (`family/flavor/arch`) and selected accelerator.
 
-## 5) Token rotation
+## 5) Manual base image customization
+
+Boot the base image directly when you need to install packages or tune the guest:
+
+```bash
+./deploy/boot-base-image.sh --image /var/lib/jenkins-qemu/base/default.qcow2 --ssh-forward 2222
+```
+
+Then customize from console (or over SSH if enabled in the image), shut down the VM,
+and keep using the same qcow2 as your base image.
+
+Useful flags:
+
+- `--accel auto|kvm|nvmm|tcg`
+- `--network user|bridge|tap`
+- `--network-if <iface>` for `bridge`/`tap`
+- `--headless`
+- `--dry-run`
+
+## 6) Token rotation
 
 1. Rotate bootstrap token in control-plane host record.
 2. Update `/etc/jenkins-qemu-node-agent/env` with new token.
 3. Restart agent service.
 
-## 6) Troubleshooting
+## 7) Troubleshooting
 
 - `selected_accel not supported by host`
   - Verify host runtime supports hardware accel; node-agent will auto-fallback to `tcg` when needed.
