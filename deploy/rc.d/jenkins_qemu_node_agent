@@ -15,11 +15,12 @@ uvicorn_args="node_agent.main:app --host 0.0.0.0 --port 9000"
 service_user="jenkins-qemu-agent"
 rundir="/var/run/${name}"
 pidfile="${rundir}/${name}.pid"
-command_args=""
+command_args="-P ${pidfile} -u ${service_user} -- ${app_command} ${uvicorn_args}"
 
 required_files="/etc/jenkins-qemu-node-agent/env"
 
 start_precmd="${name}_prestart"
+stop_postcmd="${name}_poststop"
 
 jenkins_qemu_node_agent_prestart()
 {
@@ -27,10 +28,17 @@ jenkins_qemu_node_agent_prestart()
     if [ -f "${pidfile}" ] && [ -z "$(check_pidfile "${pidfile}" "${procname}")" ]; then
         rm -f "${pidfile}"
     fi
-    command_args="-f -p ${pidfile} -u ${service_user} -- ${app_command} ${uvicorn_args}"
+
     set -a
     . /etc/jenkins-qemu-node-agent/env
     set +a
+}
+
+jenkins_qemu_node_agent_poststop()
+{
+    if [ -f "${pidfile}" ] && [ -z "$(check_pidfile "${pidfile}" "${procname}")" ]; then
+        rm -f "${pidfile}"
+    fi
 }
 
 load_rc_config $name
