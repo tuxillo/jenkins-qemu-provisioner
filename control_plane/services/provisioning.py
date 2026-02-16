@@ -43,6 +43,7 @@ def build_jenkins_cloud_init_user_data(
     jenkins_node_name: str,
     jnlp_secret: str,
     jenkins_agent_transport: str,
+    jenkins_agent_tmpdir: str,
 ) -> str:
     normalized_url = jenkins_url.rstrip("/")
     env_path_primary = "/usr/local/etc/jenkins-qemu/jenkins-agent.env"
@@ -53,6 +54,7 @@ def build_jenkins_cloud_init_user_data(
         JENKINS_NODE_NAME={_shell_single_quote(jenkins_node_name)}
         JENKINS_JNLP_SECRET={_shell_single_quote(jnlp_secret)}
         JENKINS_AGENT_TRANSPORT={_shell_single_quote(jenkins_agent_transport)}
+        JENKINS_AGENT_TMPDIR={_shell_single_quote(jenkins_agent_tmpdir)}
         """
     )
     bootstrap_script = textwrap.dedent(
@@ -90,9 +92,10 @@ def build_jenkins_cloud_init_user_data(
         AGENT_DIR=/opt/jenkins-agent
         AGENT_JAR="$AGENT_DIR/agent.jar"
         WORK_DIR=/home/jenkins
+        TMP_DIR="${JENKINS_AGENT_TMPDIR:-/var/tmp}"
         LOG_FILE=/var/log/jenkins-agent.log
 
-        mkdir -p "$AGENT_DIR" "$WORK_DIR"
+        mkdir -p "$AGENT_DIR" "$WORK_DIR" "$TMP_DIR"
         touch "$LOG_FILE"
         stage "dirs_ready" "$AGENT_DIR"
 
@@ -120,9 +123,10 @@ def build_jenkins_cloud_init_user_data(
         if [ "$AGENT_TRANSPORT" = "websocket" ]; then
           AGENT_TRANSPORT_FLAG="-webSocket"
         fi
+        export TMPDIR="$TMP_DIR"
 
-        stage "agent_launch_start" "transport=$AGENT_TRANSPORT url=$JENKINS_URL"
-        exec java -jar "$AGENT_JAR" \
+        stage "agent_launch_start" "transport=$AGENT_TRANSPORT tmpdir=$TMP_DIR url=$JENKINS_URL"
+        exec java -Djava.io.tmpdir="$TMP_DIR" -jar "$AGENT_JAR" \
           ${AGENT_TRANSPORT_FLAG:+$AGENT_TRANSPORT_FLAG} \
           -url "$JENKINS_URL" \
           -name "$JENKINS_NODE_NAME" \
@@ -252,6 +256,7 @@ def provision_one(
             jenkins_node_name=lease.jenkins_node,
             jnlp_secret=secret,
             jenkins_agent_transport=settings.jenkins_agent_transport,
+            jenkins_agent_tmpdir=settings.jenkins_agent_tmpdir,
         )
         payload = {
             "vm_id": lease.vm_id,

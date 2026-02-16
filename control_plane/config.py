@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     jenkins_user: str = Field(default="admin")
     jenkins_api_token: str = Field(default="admin")
     jenkins_agent_transport: Literal["websocket", "tcp"] = Field(default="websocket")
+    jenkins_agent_tmpdir: str = Field(default="/var/tmp")
 
     database_url: str = Field(default="sqlite:///./control_plane.db")
 

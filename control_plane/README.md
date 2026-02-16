@@ -31,6 +31,7 @@ Notes:
 - `JENKINS_USER`
 - `JENKINS_API_TOKEN`
 - `JENKINS_AGENT_TRANSPORT` (`websocket` or `tcp`, default `websocket`)
+- `JENKINS_AGENT_TMPDIR` (default `/var/tmp`)
 - `DATABASE_URL` (default `sqlite:///./control_plane.db`)
 - `NODE_AGENT_URL` (default `http://localhost:9000`)
 - `NODE_AGENT_AUTH_TOKEN` (optional)

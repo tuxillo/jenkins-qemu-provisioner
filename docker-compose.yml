@@ -40,6 +40,7 @@ services:
       JENKINS_USER: ${CP_JENKINS_USER:-admin}
       JENKINS_API_TOKEN: ${CP_JENKINS_API_TOKEN:-admin}
       JENKINS_AGENT_TRANSPORT: ${CP_JENKINS_AGENT_TRANSPORT:-websocket}
+      JENKINS_AGENT_TMPDIR: ${CP_JENKINS_AGENT_TMPDIR:-/var/tmp}
       DATABASE_URL: ${CP_DATABASE_URL:-sqlite:////data/control_plane.db}
       NODE_AGENT_URL: ${CP_NODE_AGENT_URL:-http://fake-node-agent:9000}
       NODE_AGENT_AUTH_TOKEN: ${CP_NODE_AGENT_AUTH_TOKEN:-}

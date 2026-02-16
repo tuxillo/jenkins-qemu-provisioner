@@ -71,18 +71,21 @@ def test_cloud_init_user_data_contains_inbound_bootstrap_script():
         jenkins_node_name="ephemeral-node-1",
         jnlp_secret="abc123",
         jenkins_agent_transport="websocket",
+        jenkins_agent_tmpdir="/var/tmp",
     )
     assert user_data.startswith("#cloud-config")
     assert 'curl -fsSL "$JENKINS_URL/jnlpJars/agent.jar"' in user_data
     assert '-name "$JENKINS_NODE_NAME"' in user_data
     assert "JENKINS_JNLP_SECRET='abc123'" in user_data
     assert "JENKINS_AGENT_TRANSPORT='websocket'" in user_data
+    assert "JENKINS_AGENT_TMPDIR='/var/tmp'" in user_data
     assert "/usr/local/etc/jenkins-qemu/jenkins-agent.env" in user_data
     assert "missing jenkins agent env file" in user_data
     assert "[ /usr/bin/env, bash, -c," in user_data
     assert " -lc, " not in user_data
     assert 'echo "$line" | tee -a "$BOOTSTRAP_LOG"' in user_data
     assert "-webSocket" in user_data
+    assert '-Djava.io.tmpdir="$TMP_DIR"' in user_data
     assert "printf '%s" not in user_data
 
 
@@ -92,9 +95,11 @@ def test_cloud_init_user_data_omits_websocket_flag_for_tcp_transport():
         jenkins_node_name="ephemeral-node-1",
         jnlp_secret="abc123",
         jenkins_agent_transport="tcp",
+        jenkins_agent_tmpdir="/var/tmp",
     )
     assert "JENKINS_AGENT_TRANSPORT='tcp'" in user_data
     assert 'AGENT_TRANSPORT_FLAG="-webSocket"' in user_data
+    assert 'TMP_DIR="${JENKINS_AGENT_TMPDIR:-/var/tmp}"' in user_data
 
 
 def test_normalize_node_label_strips_expression_operators():
