@@ -131,6 +131,12 @@ Useful flags:
   - Per-VM serial console is written to `NODE_AGENT_CLOUD_INIT_DIR/<vm_id>/serial.log`.
   - Example: `tail -f /var/lib/jenkins-qemu/cloud-init/<vm_id>/serial.log`.
   - Cloud-init seed is attached as explicit CD-ROM (`cidata`) for NoCloud detection.
+
+- Need one-shot VM bootstrap diagnostics without guest SSH
+  - Use node-agent debug endpoint:
+    - `curl http://<host>:9000/v1/vms/<vm_id>/debug`
+  - Response includes `serial_tail`, generated `user_data`, sanitized `jenkins_env`, and QEMU `launch_command`.
+  - Bootstrap stage markers appear as `BOOTSTRAP_STAGE=...` lines in `serial_tail`.
 - VM launches fail on Linux
   - Validate KVM availability and QEMU permissions (`/dev/kvm`).
 - VM launches fail on DragonFlyBSD

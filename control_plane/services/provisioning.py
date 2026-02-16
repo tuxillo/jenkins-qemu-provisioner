@@ -52,16 +52,32 @@ def build_jenkins_cloud_init_user_data(
     )
     bootstrap_script = textwrap.dedent(
         """\
-        #!/bin/sh
+        #!/usr/bin/env bash
         set -eu
 
         ENV_PRIMARY=/usr/local/etc/jenkins-qemu/jenkins-agent.env
         ENV_FALLBACK=/etc/jenkins-agent.env
+        BOOTSTRAP_LOG=/var/log/jenkins-agent-bootstrap.log
+
+        stage() {
+          local name="$1"
+          local detail="${2:-}"
+          local line="BOOTSTRAP_STAGE=${name} NODE=${JENKINS_NODE_NAME:-unknown} DETAIL=${detail}"
+          printf '%s\n' "$line" | tee -a "$BOOTSTRAP_LOG"
+          if [ -w /dev/console ]; then
+            printf '%s\n' "$line" > /dev/console || true
+          fi
+        }
+
+        stage "start"
         if [ -f "$ENV_PRIMARY" ]; then
           . "$ENV_PRIMARY"
+          stage "env_loaded" "$ENV_PRIMARY"
         elif [ -f "$ENV_FALLBACK" ]; then
           . "$ENV_FALLBACK"
+          stage "env_loaded" "$ENV_FALLBACK"
         else
+          stage "env_missing"
           echo "missing jenkins agent env file" >&2
           exit 1
         fi
@@ -73,21 +89,28 @@ def build_jenkins_cloud_init_user_data(
 
         mkdir -p "$AGENT_DIR" "$WORK_DIR"
         touch "$LOG_FILE"
+        stage "dirs_ready" "$AGENT_DIR"
 
         if ! command -v java >/dev/null 2>&1; then
+          stage "java_missing"
           echo "java not found in PATH" >&2
           exit 1
         fi
+        stage "java_ok" "$(command -v java)"
 
         if command -v curl >/dev/null 2>&1; then
           curl -fsSL "$JENKINS_URL/jnlpJars/agent.jar" -o "$AGENT_JAR"
+          stage "agent_download_ok" "curl"
         elif command -v fetch >/dev/null 2>&1; then
           fetch -o "$AGENT_JAR" "$JENKINS_URL/jnlpJars/agent.jar"
+          stage "agent_download_ok" "fetch"
         else
+          stage "downloader_missing"
           echo "neither curl nor fetch is available" >&2
           exit 1
         fi
 
+        stage "agent_launch_start" "$JENKINS_URL"
         exec java -jar "$AGENT_JAR" \
           -url "$JENKINS_URL" \
           -name "$JENKINS_NODE_NAME" \

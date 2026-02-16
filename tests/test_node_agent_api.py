@@ -67,3 +67,24 @@ def test_delete_vm_endpoint() -> None:
     out = client.delete(f"/v1/vms/{vm_id}")
     assert out.status_code == 200
     assert out.json()["state"] == "TERMINATED"
+
+
+def test_vm_debug_endpoint_exposes_serial_and_seed_artifacts() -> None:
+    client = TestClient(app)
+    vm_id = "vm-test-debug"
+    p = _payload(vm_id)
+    put = client.put(f"/v1/vms/{vm_id}", json=p)
+    assert put.status_code == 200
+    serial_path = put.json()["serial_log_path"]
+    assert serial_path
+
+    with open(serial_path, "w", encoding="utf-8") as f:
+        f.write("BOOTSTRAP_STAGE=start\nBOOTSTRAP_STAGE=agent_download_ok\n")
+
+    dbg = client.get(f"/v1/vms/{vm_id}/debug")
+    assert dbg.status_code == 200
+    data = dbg.json()
+    assert data["vm_id"] == vm_id
+    assert "agent_download_ok" in (data["serial_tail"] or "")
+    assert "qemu-system" in (data["launch_command"] or "")
+    assert "JENKINS_JNLP_SECRET=***" in (data["jenkins_env"] or "")

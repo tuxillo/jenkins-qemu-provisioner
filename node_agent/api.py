@@ -23,6 +23,37 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _tail_text(path: str | None, line_count: int = 120) -> str | None:
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists() or not p.is_file():
+        return None
+    lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    return "\n".join(lines[-line_count:])
+
+
+def _read_text(path: str | None, limit: int = 20000) -> str | None:
+    if not path:
+        return None
+    p = Path(path)
+    if not p.exists() or not p.is_file():
+        return None
+    return p.read_text(encoding="utf-8", errors="replace")[:limit]
+
+
+def _sanitize_env_text(text: str | None) -> str | None:
+    if text is None:
+        return None
+    out = []
+    for line in text.splitlines():
+        if line.startswith("JENKINS_JNLP_SECRET="):
+            out.append("JENKINS_JNLP_SECRET=***")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def _report_vm_status(
     settings, vm_id: str, state: str, reason: str | None = None
 ) -> None:
@@ -161,6 +192,10 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
         disk_interface=settings.disk_interface,
         serial_log_path=runtime_paths.serial_log_path,
     )
+    launch_cmd_path = str(
+        Path(runtime_paths.serial_log_path).with_name("launch-command.txt")
+    )
+    Path(launch_cmd_path).write_text(" ".join(cmd) + "\n", encoding="utf-8")
     pid = 0
     try:
         pid = launch_qemu(cmd, dry_run=settings.dry_run)
@@ -233,6 +268,41 @@ def vm_list(
     if host_id:
         rows = [r for r in rows if r.get("host_id") == host_id]
     return rows
+
+
+@router.get("/v1/vms/{vm_id}/debug")
+def vm_debug(vm_id: str, tail: int = Query(default=120, ge=10, le=2000)) -> dict:
+    row = get_vm(vm_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="unknown vm")
+
+    serial_log_path = row.get("serial_log_path")
+    vm_dir = None
+    if serial_log_path:
+        vm_dir = str(Path(serial_log_path).parent)
+    launch_cmd_path = str(Path(vm_dir) / "launch-command.txt") if vm_dir else None
+    user_data_path = str(Path(vm_dir) / "user-data") if vm_dir else None
+    env_path = str(Path(vm_dir) / "jenkins-agent.env") if vm_dir else None
+
+    return {
+        "vm_id": vm_id,
+        "state": row.get("state"),
+        "qemu_pid": row.get("qemu_pid"),
+        "lease_id": row.get("lease_id"),
+        "host_id": row.get("host_id"),
+        "paths": {
+            "serial_log_path": serial_log_path,
+            "cloud_init_iso": row.get("cloud_init_iso"),
+            "overlay_path": row.get("overlay_path"),
+            "launch_command_path": launch_cmd_path,
+            "user_data_path": user_data_path,
+            "jenkins_env_path": env_path,
+        },
+        "launch_command": _read_text(launch_cmd_path, limit=16000),
+        "serial_tail": _tail_text(serial_log_path, line_count=tail),
+        "user_data": _read_text(user_data_path, limit=16000),
+        "jenkins_env": _sanitize_env_text(_read_text(env_path, limit=4000)),
+    }
 
 
 @router.delete("/v1/vms/{vm_id}")
