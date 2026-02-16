@@ -235,3 +235,106 @@ def test_reconcile_terminates_running_lease_when_job_becomes_idle():
     assert lease is not None
     assert lease.state == LeaseState.TERMINATED.value
     assert node_agent.deleted == [("vm6", "job_terminal")]
+
+
+def test_reconcile_does_not_kill_running_lease_on_first_disconnect_tick():
+    now = datetime.now(UTC).replace(tzinfo=None)
+    db = SessionLocal()
+    db.add(
+        Lease(
+            lease_id="l7",
+            vm_id="vm7",
+            label="linux",
+            jenkins_node="n7",
+            state=LeaseState.RUNNING.value,
+            host_id="h1",
+            created_at=now,
+            updated_at=now,
+            connect_deadline=now + timedelta(minutes=1),
+            ttl_deadline=now + timedelta(hours=1),
+        )
+    )
+    db.commit()
+    db.close()
+
+    jenkins = FakeJenkins(connected=False, busy=False)
+    node_agent = FakeNodeAgent()
+
+    reconcile_once(cast(Any, jenkins), lambda _host_id: node_agent)
+
+    db = SessionLocal()
+    lease = db.get(Lease, "l7")
+    db.close()
+    assert lease is not None
+    assert lease.state == LeaseState.RUNNING.value
+    assert lease.disconnected_at is not None
+    assert node_agent.deleted == []
+
+
+def test_reconcile_terminates_running_lease_after_disconnect_grace_expires():
+    now = datetime.now(UTC).replace(tzinfo=None)
+    db = SessionLocal()
+    db.add(
+        Lease(
+            lease_id="l8",
+            vm_id="vm8",
+            label="linux",
+            jenkins_node="n8",
+            state=LeaseState.RUNNING.value,
+            host_id="h1",
+            created_at=now,
+            updated_at=now,
+            connect_deadline=now + timedelta(minutes=1),
+            ttl_deadline=now + timedelta(hours=1),
+            disconnected_at=now - timedelta(seconds=120),
+        )
+    )
+    db.commit()
+    db.close()
+
+    jenkins = FakeJenkins(connected=False, busy=False)
+    node_agent = FakeNodeAgent()
+
+    reconcile_once(cast(Any, jenkins), lambda _host_id: node_agent)
+
+    db = SessionLocal()
+    lease = db.get(Lease, "l8")
+    db.close()
+    assert lease is not None
+    assert lease.state == LeaseState.TERMINATED.value
+    assert node_agent.deleted == [("vm8", "unexpected_disconnect")]
+
+
+def test_reconcile_clears_disconnect_marker_after_recovery():
+    now = datetime.now(UTC).replace(tzinfo=None)
+    db = SessionLocal()
+    db.add(
+        Lease(
+            lease_id="l9",
+            vm_id="vm9",
+            label="linux",
+            jenkins_node="n9",
+            state=LeaseState.RUNNING.value,
+            host_id="h1",
+            created_at=now,
+            updated_at=now,
+            connect_deadline=now + timedelta(minutes=1),
+            ttl_deadline=now + timedelta(hours=1),
+            disconnected_at=now - timedelta(seconds=10),
+        )
+    )
+    db.commit()
+    db.close()
+
+    jenkins = FakeJenkins(connected=True, busy=True)
+    node_agent = FakeNodeAgent()
+
+    reconcile_once(cast(Any, jenkins), lambda _host_id: node_agent)
+
+    db = SessionLocal()
+    lease = db.get(Lease, "l9")
+    db.close()
+    assert lease is not None
+    assert lease.state == LeaseState.RUNNING.value
+    assert lease.disconnected_at is None
+    assert node_agent.deleted == []

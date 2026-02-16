@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from control_plane.clients.jenkins import JenkinsClient, NodeRuntimeStatus
 from control_plane.clients.node_agent import NodeAgentClient
+from control_plane.config import get_settings
 from control_plane.db import session_scope
 from control_plane.metrics import metrics
 from control_plane.models import Lease, LeaseState
@@ -51,6 +52,7 @@ def terminate_lease(
 
 
 def reconcile_once(jenkins: JenkinsClient, node_agent_factory) -> None:
+    settings = get_settings()
     now = datetime.now(UTC).replace(tzinfo=None)
     with session_scope() as session:
         leases = list(
@@ -86,11 +88,34 @@ def reconcile_once(jenkins: JenkinsClient, node_agent_factory) -> None:
             try:
                 status = jenkins.node_runtime_status(lease.jenkins_node)
                 _apply_runtime_transitions(lease, status)
-                if not status.connected and lease.state == LeaseState.RUNNING.value:
+                if lease.state != LeaseState.RUNNING.value:
+                    continue
+
+                if not status.connected:
+                    if _mark_disconnect_detected(lease):
+                        continue
+                    if not _disconnect_grace_expired(
+                        lease, now, settings.disconnected_grace_sec
+                    ):
+                        continue
+                    offline_for_sec = _offline_for_seconds(lease, now)
+                    with session_scope() as session:
+                        write_event(
+                            session,
+                            "lease.disconnected_grace_expired",
+                            {
+                                "jenkins_node": lease.jenkins_node,
+                                "offline_for_sec": offline_for_sec,
+                            },
+                            lease.lease_id,
+                        )
                     terminate_lease(
                         lease, jenkins, node_agent, reason="unexpected_disconnect"
                     )
-                elif lease.state == LeaseState.RUNNING.value and not status.busy:
+                    continue
+
+                _clear_disconnect_detected(lease, now)
+                if not status.busy:
                     with session_scope() as session:
                         write_event(
                             session,
@@ -142,6 +167,63 @@ def _apply_runtime_transitions(lease: Lease, status: NodeRuntimeStatus) -> None:
                 lease.lease_id,
             )
     lease.state = target_state
+
+
+def _mark_disconnect_detected(lease: Lease) -> bool:
+    if lease.disconnected_at is not None:
+        return False
+
+    detected_at = now_utc()
+    with session_scope() as session:
+        db_lease = session.get(Lease, lease.lease_id)
+        if not db_lease or db_lease.disconnected_at is not None:
+            return False
+        db_lease.disconnected_at = detected_at
+        db_lease.updated_at = detected_at
+        write_event(
+            session,
+            "lease.disconnected_detected",
+            {"jenkins_node": lease.jenkins_node},
+            lease.lease_id,
+        )
+    lease.disconnected_at = detected_at
+    return True
+
+
+def _clear_disconnect_detected(lease: Lease, now: datetime) -> None:
+    if lease.disconnected_at is None:
+        return
+
+    offline_for_sec = _offline_for_seconds(lease, now)
+    cleared_at = now_utc()
+    with session_scope() as session:
+        db_lease = session.get(Lease, lease.lease_id)
+        if not db_lease:
+            return
+        db_lease.disconnected_at = None
+        db_lease.updated_at = cleared_at
+        write_event(
+            session,
+            "lease.disconnected_recovered",
+            {
+                "jenkins_node": lease.jenkins_node,
+                "offline_for_sec": offline_for_sec,
+            },
+            lease.lease_id,
+        )
+    lease.disconnected_at = None
+
+
+def _disconnect_grace_expired(lease: Lease, now: datetime, grace_sec: int) -> bool:
+    if lease.disconnected_at is None:
+        return False
+    return (now - lease.disconnected_at).total_seconds() >= grace_sec
+
+
+def _offline_for_seconds(lease: Lease, now: datetime) -> int:
+    if lease.disconnected_at is None:
+        return 0
+    return max(int((now - lease.disconnected_at).total_seconds()), 0)
 
 
 def teardown_on_terminal_build_result(
