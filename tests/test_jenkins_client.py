@@ -25,6 +25,7 @@ def test_queue_snapshot_uses_task_label_expression(monkeypatch):
     client = JenkinsClient("http://jenkins:8080", "admin", "admin", RetryPolicy(1, 0))
     snapshot = client.queue_snapshot()
     assert snapshot.queued_by_label == {"linux-kvm": 1}
+    assert snapshot.queued_by_node == {}
 
 
 def test_queue_snapshot_prefers_assigned_label_name(monkeypatch):
@@ -46,6 +47,7 @@ def test_queue_snapshot_prefers_assigned_label_name(monkeypatch):
     client = JenkinsClient("http://jenkins:8080", "admin", "admin", RetryPolicy(1, 0))
     snapshot = client.queue_snapshot()
     assert snapshot.queued_by_label == {"linux-nvmm": 1}
+    assert snapshot.queued_by_node == {}
 
 
 def test_queue_snapshot_extracts_label_from_pipeline_why_message(monkeypatch):
@@ -71,6 +73,33 @@ def test_queue_snapshot_extracts_label_from_pipeline_why_message(monkeypatch):
     client = JenkinsClient("http://jenkins:8080", "admin", "admin", RetryPolicy(1, 0))
     snapshot = client.queue_snapshot()
     assert snapshot.queued_by_label == {"dragonflybsd-nvmm": 1}
+    assert snapshot.queued_by_node == {}
+
+
+def test_queue_snapshot_extracts_waiting_node_from_pipeline_why_message(monkeypatch):
+    payload = {
+        "items": [
+            {
+                "task": {
+                    "name": "part of build #10",
+                    "labelExpression": None,
+                },
+                "assignedLabel": None,
+                "why": "Waiting for next available executor on \u2018ephemeral-842a2f6d7516\u2019",
+            }
+        ]
+    }
+
+    def fake_request(_client, _method, _url, _retry, **_kwargs):
+        return SimpleNamespace(json=lambda: payload)
+
+    monkeypatch.setattr(
+        "control_plane.clients.jenkins.request_with_retry", fake_request
+    )
+    client = JenkinsClient("http://jenkins:8080", "admin", "admin", RetryPolicy(1, 0))
+    snapshot = client.queue_snapshot()
+    assert snapshot.queued_by_label == {}
+    assert snapshot.queued_by_node == {"ephemeral-842a2f6d7516": 1}
 
 
 def test_create_ephemeral_node_fetches_crumb_before_post(monkeypatch):

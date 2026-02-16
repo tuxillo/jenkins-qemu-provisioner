@@ -227,10 +227,12 @@ def scale_once(jenkins: JenkinsClient, node_agent_factory) -> None:
                 )
             )
         )
+        active_by_node: dict[str, Lease] = {}
         active_by_label: dict[str, int] = {}
         inflight_by_label: dict[str, int] = {}
         for lease in active:
             active_by_label[lease.label] = active_by_label.get(lease.label, 0) + 1
+            active_by_node[lease.jenkins_node] = lease
             if lease.state in (
                 LeaseState.PROVISIONING.value,
                 LeaseState.BOOTING.value,
@@ -241,9 +243,28 @@ def scale_once(jenkins: JenkinsClient, node_agent_factory) -> None:
                 )
 
     active_global = len(active)
-    if not snapshot.queued_by_label:
+    effective_queued_by_label = dict(snapshot.queued_by_label)
+    for node_name, queued in snapshot.queued_by_node.items():
+        lease = active_by_node.get(node_name)
+        if not lease or queued <= 0:
+            continue
+        effective_queued_by_label[lease.label] = (
+            effective_queued_by_label.get(lease.label, 0) + queued
+        )
+        _throttled_diag_event(
+            event_type="scale.node_wait_mapped",
+            payload={
+                "node": node_name,
+                "label": lease.label,
+                "queued": queued,
+                "lease_id": lease.lease_id,
+            },
+            now=now,
+        )
+
+    if not effective_queued_by_label:
         metrics.inc("scale_no_queue_labels_total")
-    for label, queued in snapshot.queued_by_label.items():
+    for label, queued in effective_queued_by_label.items():
         if queued <= 0:
             continue
         if _cooldowns.get(label, now) > now:

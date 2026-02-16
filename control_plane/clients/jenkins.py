@@ -11,6 +11,7 @@ from control_plane.clients.http import RequestFailure, RetryPolicy, request_with
 @dataclass
 class QueueSnapshot:
     queued_by_label: dict[str, int]
+    queued_by_node: dict[str, int]
 
 
 @dataclass
@@ -30,11 +31,19 @@ class JenkinsClient:
         response = request_with_retry(self.client, "GET", url, self.retry)
         data = response.json()
         queued_by_label: dict[str, int] = {}
+        queued_by_node: dict[str, int] = {}
         for item in data.get("items", []):
             label_name = self._extract_queue_label(item)
             if label_name:
                 queued_by_label[label_name] = queued_by_label.get(label_name, 0) + 1
-        return QueueSnapshot(queued_by_label=queued_by_label)
+                continue
+            node_name = self._extract_waiting_node(item)
+            if node_name:
+                queued_by_node[node_name] = queued_by_node.get(node_name, 0) + 1
+        return QueueSnapshot(
+            queued_by_label=queued_by_label,
+            queued_by_node=queued_by_node,
+        )
 
     @staticmethod
     def _extract_queue_label(item: dict) -> str | None:
@@ -66,6 +75,20 @@ class JenkinsClient:
                     return label
 
         return None
+
+    @staticmethod
+    def _extract_waiting_node(item: dict) -> str | None:
+        why = item.get("why")
+        if not isinstance(why, str):
+            return None
+        normalized = why.replace("\u2018", "'").replace("\u2019", "'")
+        match = re.search(
+            r"Waiting for next available executor on ['\"]([^'\"]+)['\"]", normalized
+        )
+        if not match:
+            return None
+        node = match.group(1).strip()
+        return node if node else None
 
     def create_ephemeral_node(
         self, node_name: str, label: str, *, use_websocket: bool = True
