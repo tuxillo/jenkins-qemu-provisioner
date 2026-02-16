@@ -48,7 +48,7 @@ Local E2E note:
 - Jenkins seeds a fake pipeline job (`fake-ephemeral-test`) with a `10s` timeout by default to exercise create/teardown paths quickly.
 - Jenkins image includes `antisamy-markup-formatter` so bootstrap can render a clickable Control-plane dashboard button in system message.
 - Jenkins bootstrap injects a Control-plane UI link (`JENKINS_CONTROL_PLANE_UI_URL`) in the Jenkins home message area.
-- Control-plane connect deadline is set to `10s` by default in local compose (`CP_CONNECT_DEADLINE_SEC`) so never-connected builders are recycled quickly.
+- Control-plane connect deadline is set to `180s` by default in local compose (`CP_CONNECT_DEADLINE_SEC`) to allow slower boots before recycle.
 - If Jenkins was already initialized, set `JENKINS_BOOTSTRAP_JOB_UPSERT=true` or recreate the `jenkins_home` volume to re-seed job config.
 - If you change `JENKINS_CONTROL_PLANE_UI_URL`, restart Jenkins to refresh the injected UI link.
 

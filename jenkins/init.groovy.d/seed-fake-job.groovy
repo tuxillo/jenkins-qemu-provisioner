@@ -11,7 +11,7 @@ if (!enabled) {
 }
 
 def jobName = System.getenv("JENKINS_BOOTSTRAP_JOB_NAME") ?: "fake-ephemeral-test"
-def jobLabel = System.getenv("JENKINS_BOOTSTRAP_JOB_LABEL") ?: "linux-kvm"
+def jobLabel = System.getenv("JENKINS_BOOTSTRAP_JOB_LABEL") ?: "linux-kvm || dragonflybsd-nvmm"
 def timeoutSec = (System.getenv("JENKINS_BOOTSTRAP_JOB_TIMEOUT_SEC") ?: "10") as Integer
 def sleepSec = (System.getenv("JENKINS_BOOTSTRAP_JOB_SLEEP_SEC") ?: "60") as Integer
 def upsert = (System.getenv("JENKINS_BOOTSTRAP_JOB_UPSERT") ?: "false").toBoolean()
