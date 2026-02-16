@@ -12,6 +12,12 @@ class QueueSnapshot:
     queued_by_label: dict[str, int]
 
 
+@dataclass
+class NodeRuntimeStatus:
+    connected: bool
+    busy: bool
+
+
 class JenkinsClient:
     def __init__(self, base_url: str, user: str, api_token: str, retry: RetryPolicy):
         self.base_url = base_url.rstrip("/")
@@ -110,6 +116,14 @@ class JenkinsClient:
         response = request_with_retry(self.client, "GET", url, self.retry)
         data = response.json()
         return bool(data.get("offline") is False)
+
+    def node_runtime_status(self, node_name: str) -> NodeRuntimeStatus:
+        url = f"{self.base_url}/computer/{node_name}/api/json?tree=offline,idle"
+        response = request_with_retry(self.client, "GET", url, self.retry)
+        data = response.json()
+        connected = bool(data.get("offline") is False)
+        idle = bool(data.get("idle") is True)
+        return NodeRuntimeStatus(connected=connected, busy=connected and not idle)
 
     def _post_with_crumb(self, url: str, **kwargs: Any) -> None:
         request_kwargs = dict(kwargs)

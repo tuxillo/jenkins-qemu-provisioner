@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 
-from control_plane.clients.jenkins import JenkinsClient
+from control_plane.clients.jenkins import JenkinsClient, NodeRuntimeStatus
 from control_plane.clients.node_agent import NodeAgentClient
 from control_plane.db import session_scope
 from control_plane.metrics import metrics
@@ -84,13 +84,64 @@ def reconcile_once(jenkins: JenkinsClient, node_agent_factory) -> None:
             LeaseState.RUNNING.value,
         }:
             try:
-                connected = jenkins.is_node_connected(lease.jenkins_node)
-                if not connected and lease.state == LeaseState.RUNNING.value:
+                status = jenkins.node_runtime_status(lease.jenkins_node)
+                _apply_runtime_transitions(lease, status)
+                if not status.connected and lease.state == LeaseState.RUNNING.value:
                     terminate_lease(
                         lease, jenkins, node_agent, reason="unexpected_disconnect"
                     )
+                elif lease.state == LeaseState.RUNNING.value and not status.busy:
+                    with session_scope() as session:
+                        write_event(
+                            session,
+                            "lease.job_terminal_detected",
+                            {"jenkins_node": lease.jenkins_node},
+                            lease.lease_id,
+                        )
+                    terminate_lease(lease, jenkins, node_agent, reason="job_terminal")
             except Exception:  # noqa: BLE001
                 continue
+
+
+def _apply_runtime_transitions(lease: Lease, status: NodeRuntimeStatus) -> None:
+    events: list[str] = []
+    target_state = lease.state
+
+    if status.connected and lease.state == LeaseState.BOOTING.value:
+        target_state = LeaseState.CONNECTED.value
+        events.append("lease.connected")
+
+    if (
+        status.connected
+        and status.busy
+        and target_state
+        in {
+            LeaseState.BOOTING.value,
+            LeaseState.CONNECTED.value,
+        }
+    ):
+        if target_state == LeaseState.BOOTING.value:
+            events.append("lease.connected")
+        target_state = LeaseState.RUNNING.value
+        events.append("lease.running")
+
+    if target_state == lease.state:
+        return
+
+    with session_scope() as session:
+        db_lease = session.get(Lease, lease.lease_id)
+        if not db_lease:
+            return
+        db_lease.state = target_state
+        db_lease.updated_at = now_utc()
+        for event_type in events:
+            write_event(
+                session,
+                event_type,
+                {"jenkins_node": lease.jenkins_node},
+                lease.lease_id,
+            )
+    lease.state = target_state
 
 
 def teardown_on_terminal_build_result(

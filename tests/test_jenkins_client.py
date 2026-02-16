@@ -126,3 +126,17 @@ def test_get_inbound_secret_prefers_json_api(monkeypatch):
     secret = client.get_inbound_secret("ephemeral-1")
     assert secret == "secret-from-json"
     assert any("api/json?tree=jnlpMac" in url for url in calls)
+
+
+def test_node_runtime_status_maps_connected_and_busy(monkeypatch):
+    def fake_request(_client, method, _url, _retry, **_kwargs):
+        assert method == "GET"
+        return SimpleNamespace(json=lambda: {"offline": False, "idle": False})
+
+    monkeypatch.setattr(
+        "control_plane.clients.jenkins.request_with_retry", fake_request
+    )
+    client = JenkinsClient("http://jenkins:8080", "admin", "admin", RetryPolicy(1, 0))
+    status = client.node_runtime_status("ephemeral-1")
+    assert status.connected is True
+    assert status.busy is True
