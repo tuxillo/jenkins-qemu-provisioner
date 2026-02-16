@@ -34,6 +34,21 @@
     return `<span class=\"badge state-${state}\">${state}</span>`;
   }
 
+  function esc(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
+  function clip(value, cls = "") {
+    const text = value == null || value === "" ? "-" : String(value);
+    const classAttr = cls ? ` class=\"${cls}\"` : "";
+    return `<span${classAttr} title=\"${esc(text)}\">${esc(text)}</span>`;
+  }
+
   function hostRows() {
     if (!hosts.length) {
       return "<tr><td colspan='8' class='muted'>No hosts registered yet.</td></tr>";
@@ -44,14 +59,14 @@
         const ramUse = h.ram_total_mb > 0 ? Math.round(((h.ram_total_mb - h.ram_free_mb) / h.ram_total_mb) * 100) : 0;
         const availability = h.availability || (h.enabled ? "AVAILABLE" : "DISABLED");
         return `<tr>
-          <td>${h.host_id}</td>
+          <td>${clip(h.host_id, "col-host")}</td>
           <td><span class="badge host-${availability.toLowerCase()}">${availability}</span></td>
-          <td>${h.os_family || "-"}/${h.os_flavor || "-"}/${h.cpu_arch || "-"}</td>
-          <td>${h.addr || "-"}</td>
-          <td>${h.cpu_free}/${h.cpu_total} (${cpuUse}%)</td>
-          <td>${h.ram_free_mb}/${h.ram_total_mb} MB (${ramUse}%)</td>
-          <td>${h.io_pressure.toFixed(2)}</td>
-          <td>${h.last_seen || "-"}</td>
+          <td>${clip(`${h.os_family || "-"}/${h.os_flavor || "-"}/${h.cpu_arch || "-"}`, "col-platform")}</td>
+          <td>${clip(h.addr, "col-addr")}</td>
+          <td>${clip(`${h.cpu_free}/${h.cpu_total} (${cpuUse}%)`, "col-cpu")}</td>
+          <td>${clip(`${h.ram_free_mb}/${h.ram_total_mb} MB (${ramUse}%)`, "col-ram")}</td>
+          <td>${clip(Number(h.io_pressure || 0).toFixed(2), "col-io")}</td>
+          <td>${clip(h.last_seen, "col-ts")}</td>
         </tr>`;
       })
       .join("");
@@ -65,13 +80,13 @@
       .slice(0, 200)
       .map(
         (l) => `<tr>
-        <td>${l.lease_id}</td>
-        <td>${l.label}</td>
+        <td>${clip(l.lease_id, "col-lease")}</td>
+        <td>${clip(l.label, "col-label")}</td>
         <td>${fmtState(l.state)}</td>
-        <td>${l.host_id || "-"}</td>
-        <td>${l.vm_id}</td>
-        <td>${l.jenkins_node}</td>
-        <td>${l.last_error || "-"}</td>
+        <td>${clip(l.host_id, "col-host")}</td>
+        <td>${clip(l.vm_id, "col-vm")}</td>
+        <td>${clip(l.jenkins_node, "col-node")}</td>
+        <td>${clip(l.last_error, "col-details")}</td>
       </tr>`
       )
       .join("");
@@ -102,13 +117,13 @@
           details = e.payload_json || "-";
         }
         return `<tr>
-        <td>${e.id}</td>
-        <td>${e.timestamp || "-"}</td>
-        <td>${e.event_type}</td>
-        <td>${e.lease_id || "-"}</td>
-        <td>${host}</td>
-        <td>${node}</td>
-        <td>${details}</td>
+        <td>${clip(e.id, "col-id")}</td>
+        <td>${clip(e.timestamp, "col-ts")}</td>
+        <td>${clip(host, "col-host")}</td>
+        <td>${clip(e.event_type, "col-type")}</td>
+        <td>${clip(e.lease_id, "col-lease")}</td>
+        <td>${clip(node, "col-node")}</td>
+        <td>${clip(details, "col-details")}</td>
       </tr>`;
       })
       .join("");
@@ -178,7 +193,7 @@
         <div class="scroll">
           <table>
              <thead>
-               <tr><th>ID</th><th>Timestamp</th><th>Type</th><th>Lease</th><th>Host</th><th>Jenkins Node</th><th>Details</th></tr>
+               <tr><th>ID</th><th>Timestamp</th><th>Host</th><th>Type</th><th>Lease</th><th>Jenkins Node</th><th>Details</th></tr>
              </thead>
             <tbody>${eventRows()}</tbody>
           </table>

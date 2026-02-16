@@ -120,6 +120,8 @@ table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
+  table-layout: fixed;
+  min-width: 980px;
 }
 
 th,
@@ -131,7 +133,17 @@ td {
 }
 
 td {
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.col-details {
+  display: inline-block;
+  max-width: 520px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 th {
