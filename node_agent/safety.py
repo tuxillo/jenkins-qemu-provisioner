@@ -65,6 +65,8 @@ def reconcile_once() -> None:
                 alive = True
         if not alive:
             update_vm_state(vm["vm_id"], "FAILED", reason="missing_process", qemu_pid=0)
+            cleanup_vm_artifacts(vm)
+            delete_vm(vm["vm_id"])
 
 
 def cleanup_orphan_files_once() -> None:

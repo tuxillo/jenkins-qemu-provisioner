@@ -16,10 +16,27 @@ TERMINAL_RESULTS = {"SUCCESS", "FAILURE", "ABORTED", "UNSTABLE", "NOT_BUILT"}
 def terminate_lease(
     lease: Lease, jenkins: JenkinsClient, node_agent: NodeAgentClient, reason: str
 ) -> None:
+    delete_error: str | None = None
     try:
         node_agent.delete_vm(lease.vm_id, reason=reason)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001
+        delete_error = str(exc)
+
+    if delete_error is not None:
+        with session_scope() as session:
+            db_lease = session.get(Lease, lease.lease_id)
+            if db_lease:
+                db_lease.state = LeaseState.TERMINATING.value
+                db_lease.updated_at = now_utc()
+                db_lease.last_error = f"{reason}: delete_vm_failed: {delete_error}"
+                write_event(
+                    session,
+                    "lease.terminate_retry",
+                    {"reason": reason, "error": delete_error},
+                    lease.lease_id,
+                )
+        return
+
     try:
         jenkins.delete_node(lease.jenkins_node)
     except Exception:  # noqa: BLE001
@@ -44,6 +61,10 @@ def reconcile_once(jenkins: JenkinsClient, node_agent_factory) -> None:
 
     for lease in leases:
         node_agent = node_agent_factory(lease.host_id or "")
+
+        if lease.state == LeaseState.TERMINATING.value:
+            terminate_lease(lease, jenkins, node_agent, reason="terminate_retry")
+            continue
 
         if now > lease.connect_deadline and lease.state in {
             LeaseState.REQUESTED.value,

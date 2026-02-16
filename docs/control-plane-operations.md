@@ -28,3 +28,9 @@
   - `sqlite3 control_plane.db "select id,event_type,payload_json from events where event_type like 'scale.%' or event_type like 'lease.%' order by id desc limit 100;"`
 - `scale.launch_failed` payload includes `host_id`, `node_agent_url`, and transport error details (`error_type`, `error_detail`, `request_url`).
 - In dashboard `/ui`, inspect **Recent Events** `Details` column for failure stage and endpoint hints.
+
+### Node-agent interruption behavior
+
+- If control-plane cannot reach node-agent during teardown, lease state is kept in `TERMINATING` and retried on future reconcile cycles.
+- Event `lease.terminate_retry` records retry reason and latest delete error.
+- Control-plane only marks lease `TERMINATED` after node-agent delete succeeds.
