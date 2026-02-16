@@ -89,6 +89,12 @@ Transport notes:
 - In WebSocket mode, the guest only needs reachability to Jenkins HTTP(S) URL/port.
 - Classic inbound TCP (`JENKINS_AGENT_TRANSPORT=tcp`) requires Jenkins agent listener reachability (typically port `50000`).
 
+Artifact cleanup notes:
+
+- Node-agent removes per-VM overlays, cloud-init ISO files, and runtime directories under `NODE_AGENT_CLOUD_INIT_DIR` on termination paths.
+- Periodic safety cleanup also prunes orphan overlay files and orphan runtime directories.
+- Optional `NODE_AGENT_DEBUG_ARTIFACT_RETENTION_SEC` can retain artifacts for postmortem (default `0` for immediate cleanup).
+
 DragonFlyBSD cloud-init datasource guard (required on some images):
 
 - If cloud-init crashes during datasource import (for example `DataSourceAzure` +

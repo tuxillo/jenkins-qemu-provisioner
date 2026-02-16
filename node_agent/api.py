@@ -16,6 +16,7 @@ from node_agent.qemu_runtime import (
     write_cloud_init_files,
 )
 from node_agent.schemas import VMEnsureRequest, VMStateResponse
+from node_agent.safety import cleanup_vm_artifacts
 from node_agent.state import delete_vm, get_vm, list_vms, upsert_vm, update_vm_state
 
 
@@ -315,15 +316,8 @@ def terminate_vm(vm_id: str, reason: str = "requested", force: bool = False) -> 
     pid = int(row.get("qemu_pid") or 0)
     terminate_pid(pid, dry_run=settings.dry_run and not force)
 
-    overlay_path = row.get("overlay_path")
-    cloud_init_iso = row.get("cloud_init_iso")
-
-    deleted_overlay = False
-    if overlay_path and Path(overlay_path).exists():
-        Path(overlay_path).unlink(missing_ok=True)
-        deleted_overlay = True
-    if cloud_init_iso and Path(cloud_init_iso).exists():
-        Path(cloud_init_iso).unlink(missing_ok=True)
+    cleanup_result = cleanup_vm_artifacts(row, settings=settings)
+    deleted_overlay = bool(cleanup_result.get("deleted_overlay"))
 
     update_vm_state(vm_id, "TERMINATED", reason=reason, qemu_pid=0)
     delete_vm(vm_id)

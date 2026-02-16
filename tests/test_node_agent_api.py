@@ -1,5 +1,6 @@
 import base64
 import os
+from pathlib import Path
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
@@ -64,9 +65,12 @@ def test_delete_vm_endpoint() -> None:
     vm_id = "vm-test-delete"
     p = _payload(vm_id)
     client.put(f"/v1/vms/{vm_id}", json=p)
+    vm_dir = Path(os.environ["NODE_AGENT_CLOUD_INIT_DIR"]) / vm_id
+    assert vm_dir.exists()
     out = client.delete(f"/v1/vms/{vm_id}")
     assert out.status_code == 200
     assert out.json()["state"] == "TERMINATED"
+    assert not vm_dir.exists()
 
 
 def test_vm_debug_endpoint_exposes_serial_and_seed_artifacts() -> None:

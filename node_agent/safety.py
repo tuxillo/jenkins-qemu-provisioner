@@ -1,4 +1,5 @@
 import logging
+import shutil
 import threading
 import time
 from datetime import UTC, datetime
@@ -39,15 +40,30 @@ def enforce_ttl_once() -> None:
             pid = int(vm.get("qemu_pid") or 0)
             terminate_pid(pid, dry_run=settings.dry_run)
             update_vm_state(vm["vm_id"], "TERMINATED", reason="ttl_expired", qemu_pid=0)
-            cleanup_vm_artifacts(vm)
+            cleanup_vm_artifacts(vm, settings=settings)
             delete_vm(vm["vm_id"])
 
 
-def cleanup_vm_artifacts(vm: dict) -> None:
-    for path_field in ("overlay_path", "cloud_init_iso"):
-        path = vm.get(path_field)
-        if path:
-            Path(path).unlink(missing_ok=True)
+def cleanup_vm_artifacts(vm: dict, settings=None) -> dict[str, bool]:
+    if settings is None:
+        settings = get_agent_settings()
+
+    retention = max(int(settings.debug_artifact_retention_sec), 0)
+    if retention > 0:
+        return {
+            "deleted_overlay": False,
+            "deleted_cloud_init_iso": False,
+            "deleted_vm_dir": False,
+        }
+
+    deleted_overlay = _unlink_if_exists(vm.get("overlay_path"))
+    deleted_cloud_init_iso = _unlink_if_exists(vm.get("cloud_init_iso"))
+    deleted_vm_dir = _remove_vm_runtime_dir(vm)
+    return {
+        "deleted_overlay": deleted_overlay,
+        "deleted_cloud_init_iso": deleted_cloud_init_iso,
+        "deleted_vm_dir": deleted_vm_dir,
+    }
 
 
 def reconcile_once() -> None:
@@ -68,19 +84,78 @@ def reconcile_once() -> None:
                 alive = True
         if not alive:
             update_vm_state(vm["vm_id"], "FAILED", reason="missing_process", qemu_pid=0)
-            cleanup_vm_artifacts(vm)
+            cleanup_vm_artifacts(vm, settings=settings)
             delete_vm(vm["vm_id"])
 
 
 def cleanup_orphan_files_once() -> None:
     settings = get_agent_settings()
+    retention = max(int(settings.debug_artifact_retention_sec), 0)
+    now = time.time()
+
     known = {vm.get("overlay_path") for vm in list_vms() if vm.get("overlay_path")}
     overlay_dir = Path(settings.overlay_dir)
     if not overlay_dir.exists():
-        return
-    for file in overlay_dir.glob("*.qcow2"):
+        overlay_files: list[Path] = []
+    else:
+        overlay_files = list(overlay_dir.glob("*.qcow2"))
+
+    for file in overlay_files:
         if str(file) not in known:
-            file.unlink(missing_ok=True)
+            if retention <= 0 or _older_than(file, now, retention):
+                file.unlink(missing_ok=True)
+
+    known_vm_dirs = {
+        p
+        for p in (_runtime_dir_path(vm) for vm in list_vms())
+        if p is not None and p.exists()
+    }
+    cloud_init_dir = Path(settings.cloud_init_dir)
+    if not cloud_init_dir.exists():
+        return
+
+    for entry in cloud_init_dir.iterdir():
+        if not entry.is_dir() or entry in known_vm_dirs:
+            continue
+        if retention <= 0 or _older_than(entry, now, retention):
+            shutil.rmtree(entry, ignore_errors=True)
+
+
+def _unlink_if_exists(path_value: str | None) -> bool:
+    if not path_value:
+        return False
+    path = Path(path_value)
+    if not path.exists() or not path.is_file():
+        return False
+    path.unlink(missing_ok=True)
+    return True
+
+
+def _runtime_dir_path(vm: dict) -> Path | None:
+    serial_log_path = vm.get("serial_log_path")
+    if isinstance(serial_log_path, str) and serial_log_path:
+        return Path(serial_log_path).parent
+
+    cloud_init_iso = vm.get("cloud_init_iso")
+    if isinstance(cloud_init_iso, str) and cloud_init_iso:
+        return Path(cloud_init_iso).parent
+    return None
+
+
+def _remove_vm_runtime_dir(vm: dict) -> bool:
+    vm_dir = _runtime_dir_path(vm)
+    if vm_dir is None or not vm_dir.exists() or not vm_dir.is_dir():
+        return False
+    shutil.rmtree(vm_dir, ignore_errors=True)
+    return True
+
+
+def _older_than(path: Path, now_epoch: float, age_sec: int) -> bool:
+    try:
+        st = path.stat()
+    except OSError:
+        return False
+    return (now_epoch - st.st_mtime) >= age_sec
 
 
 def safety_worker(stop_event: threading.Event) -> None:

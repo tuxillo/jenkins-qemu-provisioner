@@ -45,6 +45,7 @@ class AgentSettings(BaseSettings):
     node_agent_auth_token: str | None = Field(default=None)
     dry_run: bool = Field(default=False)
     disable_workers: bool = Field(default=False)
+    debug_artifact_retention_sec: int = Field(default=0, ge=0)
 
     def ensure_dirs(self) -> None:
         for path in (self.base_image_dir, self.overlay_dir, self.cloud_init_dir):
