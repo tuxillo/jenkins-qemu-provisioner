@@ -63,9 +63,9 @@ def build_jenkins_cloud_init_user_data(
           local name="$1"
           local detail="${2:-}"
           local line="BOOTSTRAP_STAGE=${name} NODE=${JENKINS_NODE_NAME:-unknown} DETAIL=${detail}"
-          printf '%s\n' "$line" | tee -a "$BOOTSTRAP_LOG"
+          echo "$line" | tee -a "$BOOTSTRAP_LOG"
           if [ -w /dev/console ]; then
-            printf '%s\n' "$line" > /dev/console || true
+            echo "$line" > /dev/console || true
           fi
         }
 

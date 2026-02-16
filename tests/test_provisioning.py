@@ -77,6 +77,8 @@ def test_cloud_init_user_data_contains_inbound_bootstrap_script():
     assert "missing jenkins agent env file" in user_data
     assert "[ /usr/bin/env, bash, -c," in user_data
     assert " -lc, " not in user_data
+    assert 'echo "$line" | tee -a "$BOOTSTRAP_LOG"' in user_data
+    assert "printf '%s" not in user_data
 
 
 def test_normalize_node_label_strips_expression_operators():
