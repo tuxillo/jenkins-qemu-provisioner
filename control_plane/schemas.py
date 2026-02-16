@@ -56,6 +56,7 @@ class LeaseRead(BaseModel):
     host_id: str | None
     connect_deadline: datetime
     ttl_deadline: datetime
+    bound_build_url: str | None = None
     last_error: str | None
 
 

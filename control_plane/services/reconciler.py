@@ -115,15 +115,28 @@ def reconcile_once(jenkins: JenkinsClient, node_agent_factory) -> None:
                     continue
 
                 _clear_disconnect_detected(lease, now)
-                if not status.busy:
-                    with session_scope() as session:
-                        write_event(
-                            session,
-                            "lease.job_terminal_detected",
-                            {"jenkins_node": lease.jenkins_node},
-                            lease.lease_id,
-                        )
-                    terminate_lease(lease, jenkins, node_agent, reason="job_terminal")
+                bound_build_url = _ensure_bound_build_url(lease, jenkins)
+                if not bound_build_url:
+                    continue
+
+                if status.busy:
+                    _record_unexpected_reuse_if_needed(lease, jenkins, bound_build_url)
+                    continue
+
+                if jenkins.is_build_running(bound_build_url):
+                    continue
+
+                with session_scope() as session:
+                    write_event(
+                        session,
+                        "lease.job_terminal_detected",
+                        {
+                            "jenkins_node": lease.jenkins_node,
+                            "bound_build_url": bound_build_url,
+                        },
+                        lease.lease_id,
+                    )
+                terminate_lease(lease, jenkins, node_agent, reason="job_terminal")
             except Exception:  # noqa: BLE001
                 continue
 
@@ -224,6 +237,55 @@ def _offline_for_seconds(lease: Lease, now: datetime) -> int:
     if lease.disconnected_at is None:
         return 0
     return max(int((now - lease.disconnected_at).total_seconds()), 0)
+
+
+def _ensure_bound_build_url(lease: Lease, jenkins: JenkinsClient) -> str | None:
+    if lease.bound_build_url:
+        return lease.bound_build_url
+
+    build_url = jenkins.node_current_build_url(lease.jenkins_node)
+    if not build_url:
+        return None
+
+    bound_at = now_utc()
+    with session_scope() as session:
+        db_lease = session.get(Lease, lease.lease_id)
+        if not db_lease:
+            return None
+        if db_lease.bound_build_url:
+            lease.bound_build_url = db_lease.bound_build_url
+            return db_lease.bound_build_url
+        db_lease.bound_build_url = build_url
+        db_lease.updated_at = bound_at
+        write_event(
+            session,
+            "lease.job_bound",
+            {"jenkins_node": lease.jenkins_node, "build_url": build_url},
+            lease.lease_id,
+        )
+
+    lease.bound_build_url = build_url
+    return build_url
+
+
+def _record_unexpected_reuse_if_needed(
+    lease: Lease, jenkins: JenkinsClient, bound_build_url: str
+) -> None:
+    current_url = jenkins.node_current_build_url(lease.jenkins_node)
+    if not current_url or current_url == bound_build_url:
+        return
+
+    with session_scope() as session:
+        write_event(
+            session,
+            "lease.unexpected_reuse",
+            {
+                "jenkins_node": lease.jenkins_node,
+                "bound_build_url": bound_build_url,
+                "current_build_url": current_url,
+            },
+            lease.lease_id,
+        )
 
 
 def teardown_on_terminal_build_result(

@@ -140,3 +140,46 @@ def test_node_runtime_status_maps_connected_and_busy(monkeypatch):
     status = client.node_runtime_status("ephemeral-1")
     assert status.connected is True
     assert status.busy is True
+
+
+def test_node_current_build_url_reads_executor_payload(monkeypatch):
+    def fake_request(_client, method, _url, _retry, **_kwargs):
+        assert method == "GET"
+        return SimpleNamespace(
+            json=lambda: {
+                "executors": [
+                    {
+                        "currentExecutable": {
+                            "url": "http://jenkins:8080/job/fake/15/",
+                        }
+                    }
+                ],
+                "oneOffExecutors": [],
+            }
+        )
+
+    monkeypatch.setattr(
+        "control_plane.clients.jenkins.request_with_retry", fake_request
+    )
+    client = JenkinsClient("http://jenkins:8080", "admin", "admin", RetryPolicy(1, 0))
+    assert (
+        client.node_current_build_url("ephemeral-1")
+        == "http://jenkins:8080/job/fake/15/"
+    )
+
+
+def test_is_build_running_checks_building_flag(monkeypatch):
+    calls: list[str] = []
+
+    def fake_request(_client, method, url, _retry, **_kwargs):
+        calls.append(url)
+        assert method == "GET"
+        return SimpleNamespace(json=lambda: {"building": False, "result": "SUCCESS"})
+
+    monkeypatch.setattr(
+        "control_plane.clients.jenkins.request_with_retry", fake_request
+    )
+    client = JenkinsClient("http://jenkins:8080", "admin", "admin", RetryPolicy(1, 0))
+    assert client.is_build_running("http://jenkins:8080/job/fake/15") is False
+    assert calls
+    assert calls[0].endswith("/api/json?tree=building,result")

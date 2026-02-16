@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from control_plane.clients.http import RetryPolicy, request_with_retry
+from control_plane.clients.http import RequestFailure, RetryPolicy, request_with_retry
 
 
 @dataclass
@@ -124,6 +124,47 @@ class JenkinsClient:
         connected = bool(data.get("offline") is False)
         idle = bool(data.get("idle") is True)
         return NodeRuntimeStatus(connected=connected, busy=connected and not idle)
+
+    def node_current_build_url(self, node_name: str) -> str | None:
+        tree = (
+            "offline,executors[currentExecutable[url]],"
+            "oneOffExecutors[currentExecutable[url]]"
+        )
+        url = f"{self.base_url}/computer/{node_name}/api/json?tree={tree}"
+        response = request_with_retry(self.client, "GET", url, self.retry)
+        data = response.json()
+        for key in ("executors", "oneOffExecutors"):
+            entries = data.get(key)
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                current = entry.get("currentExecutable")
+                if not isinstance(current, dict):
+                    continue
+                build_url = current.get("url")
+                if isinstance(build_url, str) and build_url:
+                    return build_url
+        return None
+
+    def is_build_running(self, build_url: str) -> bool:
+        api_url = self._build_api_json_url(build_url)
+        try:
+            response = request_with_retry(self.client, "GET", api_url, self.retry)
+        except RequestFailure as exc:
+            if exc.status_code == 404:
+                return False
+            raise
+        payload = response.json()
+        return bool(payload.get("building") is True)
+
+    @staticmethod
+    def _build_api_json_url(build_url: str) -> str:
+        root = build_url.split("?", 1)[0]
+        if not root.endswith("/"):
+            root = f"{root}/"
+        return f"{root}api/json?tree=building,result"
 
     def _post_with_crumb(self, url: str, **kwargs: Any) -> None:
         request_kwargs = dict(kwargs)

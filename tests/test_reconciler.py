@@ -7,10 +7,19 @@ from control_plane.services.reconciler import reconcile_once
 
 
 class FakeJenkins:
-    def __init__(self, *, connected: bool = False, busy: bool = False):
+    def __init__(
+        self,
+        *,
+        connected: bool = False,
+        busy: bool = False,
+        current_build_url: str | None = None,
+        build_running: bool = False,
+    ):
         self.deleted = []
         self.connected = connected
         self.busy = busy
+        self.current_build_url = current_build_url
+        self.build_running = build_running
 
     def delete_node(self, node_name: str):
         self.deleted.append(node_name)
@@ -21,6 +30,12 @@ class FakeJenkins:
             (),
             {"connected": self.connected, "busy": self.busy},
         )()
+
+    def node_current_build_url(self, _node_name: str) -> str | None:
+        return self.current_build_url
+
+    def is_build_running(self, _build_url: str) -> bool:
+        return self.build_running
 
 
 class FakeNodeAgent:
@@ -192,7 +207,12 @@ def test_reconcile_marks_connected_running_when_node_becomes_busy():
     db.commit()
     db.close()
 
-    jenkins = FakeJenkins(connected=True, busy=True)
+    jenkins = FakeJenkins(
+        connected=True,
+        busy=True,
+        current_build_url="http://jenkins:8080/job/fake/5/",
+        build_running=True,
+    )
     node_agent = FakeNodeAgent()
 
     reconcile_once(cast(Any, jenkins), lambda _host_id: node_agent)
@@ -202,6 +222,7 @@ def test_reconcile_marks_connected_running_when_node_becomes_busy():
     db.close()
     assert lease is not None
     assert lease.state == LeaseState.RUNNING.value
+    assert lease.bound_build_url == "http://jenkins:8080/job/fake/5/"
 
 
 def test_reconcile_terminates_running_lease_when_job_becomes_idle():
@@ -219,12 +240,18 @@ def test_reconcile_terminates_running_lease_when_job_becomes_idle():
             updated_at=now,
             connect_deadline=now + timedelta(minutes=1),
             ttl_deadline=now + timedelta(hours=1),
+            bound_build_url="http://jenkins:8080/job/fake/6/",
         )
     )
     db.commit()
     db.close()
 
-    jenkins = FakeJenkins(connected=True, busy=False)
+    jenkins = FakeJenkins(
+        connected=True,
+        busy=False,
+        current_build_url=None,
+        build_running=False,
+    )
     node_agent = FakeNodeAgent()
 
     reconcile_once(cast(Any, jenkins), lambda _host_id: node_agent)
@@ -268,6 +295,45 @@ def test_reconcile_does_not_kill_running_lease_on_first_disconnect_tick():
     assert lease is not None
     assert lease.state == LeaseState.RUNNING.value
     assert lease.disconnected_at is not None
+    assert node_agent.deleted == []
+
+
+def test_reconcile_keeps_running_lease_when_bound_build_still_running():
+    now = datetime.now(UTC).replace(tzinfo=None)
+    db = SessionLocal()
+    db.add(
+        Lease(
+            lease_id="l10",
+            vm_id="vm10",
+            label="linux",
+            jenkins_node="n10",
+            state=LeaseState.RUNNING.value,
+            host_id="h1",
+            created_at=now,
+            updated_at=now,
+            connect_deadline=now + timedelta(minutes=1),
+            ttl_deadline=now + timedelta(hours=1),
+            bound_build_url="http://jenkins:8080/job/fake/10/",
+        )
+    )
+    db.commit()
+    db.close()
+
+    jenkins = FakeJenkins(
+        connected=True,
+        busy=False,
+        current_build_url=None,
+        build_running=True,
+    )
+    node_agent = FakeNodeAgent()
+
+    reconcile_once(cast(Any, jenkins), lambda _host_id: node_agent)
+
+    db = SessionLocal()
+    lease = db.get(Lease, "l10")
+    db.close()
+    assert lease is not None
+    assert lease.state == LeaseState.RUNNING.value
     assert node_agent.deleted == []
 
 

@@ -114,6 +114,7 @@ def _build_snapshot(db: Session) -> dict:
                 "updated_at": _to_iso(l.updated_at),
                 "connect_deadline": _to_iso(l.connect_deadline),
                 "ttl_deadline": _to_iso(l.ttl_deadline),
+                "bound_build_url": l.bound_build_url,
                 "last_error": l.last_error,
             }
             for l in leases
@@ -339,6 +340,7 @@ def get_leases(
             host_id=l.host_id,
             connect_deadline=l.connect_deadline,
             ttl_deadline=l.ttl_deadline,
+            bound_build_url=l.bound_build_url,
             last_error=l.last_error,
         )
         for l in leases

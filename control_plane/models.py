@@ -53,6 +53,7 @@ class Lease(Base):
     connect_deadline: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     ttl_deadline: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     disconnected_at: Mapped[datetime | None] = mapped_column(DateTime)
+    bound_build_url: Mapped[str | None] = mapped_column(Text)
     last_heartbeat: Mapped[datetime | None] = mapped_column(DateTime)
     last_error: Mapped[str | None] = mapped_column(Text)
 
