@@ -1,4 +1,5 @@
 import base64
+import textwrap
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -15,6 +16,77 @@ NODE_PROFILES = {
     "medium": {"vcpu": 4, "ram_mb": 8192, "disk_gb": 80},
     "large": {"vcpu": 8, "ram_mb": 16384, "disk_gb": 120},
 }
+
+
+def _shell_single_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def build_jenkins_cloud_init_user_data(
+    *, jenkins_url: str, jenkins_node_name: str, jnlp_secret: str
+) -> str:
+    normalized_url = jenkins_url.rstrip("/")
+    env_file = textwrap.dedent(
+        f"""\
+        JENKINS_URL={_shell_single_quote(normalized_url)}
+        JENKINS_NODE_NAME={_shell_single_quote(jenkins_node_name)}
+        JENKINS_JNLP_SECRET={_shell_single_quote(jnlp_secret)}
+        """
+    )
+    bootstrap_script = textwrap.dedent(
+        """\
+        #!/bin/sh
+        set -eu
+        . /etc/jenkins-agent.env
+
+        AGENT_DIR=/opt/jenkins-agent
+        AGENT_JAR="$AGENT_DIR/agent.jar"
+        WORK_DIR=/home/jenkins
+        LOG_FILE=/var/log/jenkins-agent.log
+
+        mkdir -p "$AGENT_DIR" "$WORK_DIR"
+        touch "$LOG_FILE"
+
+        if ! command -v java >/dev/null 2>&1; then
+          echo "java not found in PATH" >&2
+          exit 1
+        fi
+
+        if command -v curl >/dev/null 2>&1; then
+          curl -fsSL "$JENKINS_URL/jnlpJars/agent.jar" -o "$AGENT_JAR"
+        elif command -v fetch >/dev/null 2>&1; then
+          fetch -o "$AGENT_JAR" "$JENKINS_URL/jnlpJars/agent.jar"
+        else
+          echo "neither curl nor fetch is available" >&2
+          exit 1
+        fi
+
+        exec java -jar "$AGENT_JAR" \
+          -url "$JENKINS_URL" \
+          -name "$JENKINS_NODE_NAME" \
+          -secret "$JENKINS_JNLP_SECRET" \
+          -workDir "$WORK_DIR" \
+          >> "$LOG_FILE" 2>&1
+        """
+    )
+    return textwrap.dedent(
+        f"""\
+        #cloud-config
+        write_files:
+          - path: /etc/jenkins-agent.env
+            permissions: '0600'
+            owner: root:root
+            content: |
+{textwrap.indent(env_file, "              ")}
+          - path: /usr/local/bin/start-jenkins-inbound-agent.sh
+            permissions: '0755'
+            owner: root:root
+            content: |
+{textwrap.indent(bootstrap_script, "              ")}
+        runcmd:
+          - [ sh, -lc, "nohup /usr/local/bin/start-jenkins-inbound-agent.sh >> /var/log/jenkins-agent-bootstrap.log 2>&1 &" ]
+        """
+    )
 
 
 class ProvisioningError(RuntimeError):
@@ -105,6 +177,11 @@ def provision_one(
     try:
         jenkins.create_ephemeral_node(lease.jenkins_node, label)
         secret = jenkins.get_inbound_secret(lease.jenkins_node)
+        user_data = build_jenkins_cloud_init_user_data(
+            jenkins_url=settings.jenkins_url,
+            jenkins_node_name=lease.jenkins_node,
+            jnlp_secret=secret,
+        )
         payload = {
             "vm_id": lease.vm_id,
             "label": label,
@@ -118,9 +195,9 @@ def provision_one(
             "jenkins_url": settings.jenkins_url,
             "jenkins_node_name": lease.jenkins_node,
             "jnlp_secret": secret,
-            "cloud_init_user_data_b64": base64.b64encode(b"#cloud-config\n").decode(
-                "ascii"
-            ),
+            "cloud_init_user_data_b64": base64.b64encode(
+                user_data.encode("utf-8")
+            ).decode("ascii"),
             "metadata": {"lease_id": lease.lease_id},
         }
         node_agent.ensure_vm(lease.vm_id, payload)

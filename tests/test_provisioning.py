@@ -1,8 +1,13 @@
 from datetime import UTC, datetime, timedelta
+import base64
+from typing import Any, cast
 
 from control_plane.db import Base, SessionLocal, engine
 from control_plane.models import Lease, LeaseState
-from control_plane.services.provisioning import provision_one
+from control_plane.services.provisioning import (
+    build_jenkins_cloud_init_user_data,
+    provision_one,
+)
 
 
 class FakeJenkins:
@@ -41,19 +46,39 @@ def setup_function() -> None:
 
 
 def test_provision_success_transitions_to_booting():
-    lease_id = provision_one("linux-small", "host1", FakeJenkins(), FakeNodeAgent())
+    node_agent = FakeNodeAgent()
+    lease_id = provision_one(
+        "linux-small", "host1", cast(Any, FakeJenkins()), cast(Any, node_agent)
+    )
     db = SessionLocal()
     lease = db.get(Lease, lease_id)
     db.close()
     assert lease is not None
     assert lease.state == LeaseState.BOOTING.value
+    assert node_agent.calls
+    payload = node_agent.calls[0][1]
+    user_data = base64.b64decode(payload["cloud_init_user_data_b64"]).decode("utf-8")
+    assert "start-jenkins-inbound-agent.sh" in user_data
+    assert "JENKINS_JNLP_SECRET='secret'" in user_data
+
+
+def test_cloud_init_user_data_contains_inbound_bootstrap_script():
+    user_data = build_jenkins_cloud_init_user_data(
+        jenkins_url="http://jenkins:8080",
+        jenkins_node_name="ephemeral-node-1",
+        jnlp_secret="abc123",
+    )
+    assert user_data.startswith("#cloud-config")
+    assert 'curl -fsSL "$JENKINS_URL/jnlpJars/agent.jar"' in user_data
+    assert '-name "$JENKINS_NODE_NAME"' in user_data
+    assert "JENKINS_JNLP_SECRET='abc123'" in user_data
 
 
 def test_provision_failure_marks_failed_and_rolls_back_node():
     jenkins = FakeJenkins()
     node_agent = FakeNodeAgent(fail=True)
     try:
-        provision_one("linux-small", "host1", jenkins, node_agent)
+        provision_one("linux-small", "host1", cast(Any, jenkins), cast(Any, node_agent))
         raise AssertionError("expected failure")
     except RuntimeError:
         pass
@@ -89,7 +114,11 @@ def test_provision_idempotent_for_existing_booting_lease():
     jenkins = FakeJenkins()
     node_agent = FakeNodeAgent()
     out = provision_one(
-        "linux-small", "host1", jenkins, node_agent, lease_id="existinglease"
+        "linux-small",
+        "host1",
+        cast(Any, jenkins),
+        cast(Any, node_agent),
+        lease_id="existinglease",
     )
     assert out == "existinglease"
     assert not node_agent.calls

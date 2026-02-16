@@ -76,6 +76,12 @@ Boot the base image directly when you need to install packages or tune the guest
 Then customize from console (or over SSH if enabled in the image), shut down the VM,
 and keep using the same qcow2 as your base image.
 
+Minimum guest requirements for automatic Jenkins inbound bootstrap:
+
+- `cloud-init` enabled in the base image
+- Java available in PATH (`java`)
+- `curl` or `fetch` available to download `agent.jar`
+
 Useful flags:
 
 - `--accel auto|kvm|nvmm|tcg`
