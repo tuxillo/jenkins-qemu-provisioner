@@ -56,6 +56,8 @@ services:
       dockerfile: control_plane/Dockerfile
     container_name: fake-node-agent-dev
     restart: unless-stopped
+    profiles:
+      - fake-agent
     depends_on:
       - control-plane
     ports:

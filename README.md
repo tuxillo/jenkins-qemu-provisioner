@@ -36,15 +36,15 @@ docker compose up -d --build
 - Control-plane health: `http://localhost:8000/healthz`
 - Control-plane metrics: `http://localhost:8000/metrics`
 - Control-plane UI: `http://localhost:8000/ui`
-- Fake node-agent health: `http://localhost:9000/healthz`
+- Fake node-agent health (when enabled): `http://localhost:9000/healthz`
 
 UI note:
 - `/ui` is read-only and renders from a server-embedded snapshot.
 - It does not query control-plane APIs from the browser.
 
 Local E2E note:
-- Compose includes `fake-node-agent` by default for local loop testing.
-- Control-plane loops are enabled by default and point to fake node-agent (`CP_NODE_AGENT_URL`).
+- `fake-node-agent` is disabled by default; enable with profile: `docker compose --profile fake-agent up -d`.
+- Control-plane loops are enabled by default and can point to fake node-agent via `CP_NODE_AGENT_URL`.
 - Jenkins seeds a fake pipeline job (`fake-ephemeral-test`) with a `10s` timeout by default to exercise create/teardown paths quickly.
 - Jenkins image includes `antisamy-markup-formatter` so bootstrap can render a clickable Control-plane dashboard button in system message.
 - Jenkins bootstrap injects a Control-plane UI link (`JENKINS_CONTROL_PLANE_UI_URL`) in the Jenkins home message area.

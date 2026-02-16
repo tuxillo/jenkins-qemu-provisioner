@@ -19,6 +19,7 @@
   const hosts = snapshot.hosts || [];
   const leases = snapshot.leases || [];
   const events = snapshot.events || [];
+  const leaseById = new Map(leases.map((l) => [l.lease_id, l]));
   const generatedAt = snapshot.generated_at || "unknown";
   const generatedDate = snapshot.generated_at ? new Date(snapshot.generated_at) : null;
   const ageSec = generatedDate ? Math.max(0, Math.floor((Date.now() - generatedDate.getTime()) / 1000)) : null;
@@ -78,13 +79,18 @@
 
   function eventRows() {
     if (!events.length) {
-      return "<tr><td colspan='5' class='muted'>No events yet.</td></tr>";
+      return "<tr><td colspan='7' class='muted'>No events yet.</td></tr>";
     }
     return events
       .map((e) => {
         let details = "-";
+        let host = "-";
+        let node = "-";
         try {
           const payload = e.payload_json ? JSON.parse(e.payload_json) : {};
+          const lease = e.lease_id ? leaseById.get(e.lease_id) : null;
+          host = payload.host_id || lease?.host_id || "-";
+          node = payload.jenkins_node || lease?.jenkins_node || "-";
           if (payload.error_detail || payload.error) {
             details = payload.error_detail || payload.error;
           } else if (payload.reject_reasons) {
@@ -100,6 +106,8 @@
         <td>${e.timestamp || "-"}</td>
         <td>${e.event_type}</td>
         <td>${e.lease_id || "-"}</td>
+        <td>${host}</td>
+        <td>${node}</td>
         <td>${details}</td>
       </tr>`;
       })
@@ -169,9 +177,9 @@
         <h2>Recent Events</h2>
         <div class="scroll">
           <table>
-            <thead>
-               <tr><th>ID</th><th>Timestamp</th><th>Type</th><th>Lease</th><th>Details</th></tr>
-            </thead>
+             <thead>
+               <tr><th>ID</th><th>Timestamp</th><th>Type</th><th>Lease</th><th>Host</th><th>Jenkins Node</th><th>Details</th></tr>
+             </thead>
             <tbody>${eventRows()}</tbody>
           </table>
         </div>
