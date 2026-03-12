@@ -20,9 +20,7 @@ service_user="jenkins-qemu-agent"
 rundir="/var/run/${name}"
 pidfile="${rundir}/${name}.pid"
 logfile="${jenkins_qemu_node_agent_logfile}"
-command_args="-P ${pidfile} -u ${service_user} -f -H -o ${logfile} -- ${app_command} ${app_args}"
-extra_commands="reload"
-sig_reload="HUP"
+command_args="-P ${pidfile} -u ${service_user} -f -o ${logfile} -- ${app_command} ${app_args}"
 
 required_files="/etc/jenkins-qemu-node-agent/env"
 

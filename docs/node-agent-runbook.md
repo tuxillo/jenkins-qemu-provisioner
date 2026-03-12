@@ -69,8 +69,7 @@ operate consistently.
 By default, node-agent stdout/stderr is appended to
 `/var/log/jenkins-qemu-node-agent.log` via `daemon -o`; override that path with
 `jenkins_qemu_node_agent_logfile` in `/etc/rc.conf`.
-Use `sudo service jenkins_qemu_node_agent reload` after log rotation to reopen
-the logfile.
+On DragonFlyBSD, rotate this logfile with a service restart.
 
 ## 4) Validation
 
