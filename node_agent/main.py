@@ -2,6 +2,7 @@ import logging
 import threading
 
 from fastapi import FastAPI
+import uvicorn
 
 from node_agent.api import router
 from node_agent.config import get_agent_settings
@@ -56,3 +57,12 @@ def shutdown() -> None:
         heartbeat_thread.join(timeout=1)
     if safety_thread:
         safety_thread.join(timeout=1)
+
+
+def main() -> None:
+    settings = get_agent_settings()
+    uvicorn.run("node_agent.main:app", host=settings.bind_host, port=settings.bind_port)
+
+
+if __name__ == "__main__":
+    main()

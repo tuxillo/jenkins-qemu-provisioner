@@ -9,7 +9,7 @@ User=jenkins-qemu-agent
 Group=jenkins-qemu-agent
 EnvironmentFile=/etc/jenkins-qemu-node-agent/env
 WorkingDirectory=/opt/jenkins-qemu-node-agent
-ExecStart=/opt/jenkins-qemu-node-agent/venv/bin/uvicorn node_agent.main:app --host 0.0.0.0 --port 9000
+ExecStart=/opt/jenkins-qemu-node-agent/venv/bin/python -m node_agent.main
 Restart=always
 RestartSec=3
 

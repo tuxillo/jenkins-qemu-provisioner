@@ -9,7 +9,7 @@ run:
 	uvicorn control_plane.main:app --host 0.0.0.0 --port 8000 --reload
 
 run-node-agent:
-	uvicorn node_agent.main:app --host 0.0.0.0 --port 9000 --reload
+	uvicorn node_agent.main:app --host "$${NODE_AGENT_BIND_HOST:-0.0.0.0}" --port "$${NODE_AGENT_BIND_PORT:-9000}" --reload
 
 init-db:
 	$(PYTHON) -m control_plane.scripts.init_db

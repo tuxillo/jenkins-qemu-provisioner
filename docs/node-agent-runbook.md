@@ -20,6 +20,8 @@ Then edit `/etc/jenkins-qemu-node-agent/env`:
 - `NODE_AGENT_HOST_ID`
 - `NODE_AGENT_BOOTSTRAP_TOKEN`
 - `NODE_AGENT_CONTROL_PLANE_URL`
+- `NODE_AGENT_BIND_HOST` (defaults to `0.0.0.0`)
+- `NODE_AGENT_BIND_PORT` (defaults to `9000`)
 - `NODE_AGENT_ADVERTISE_ADDR` (reachable from control-plane, e.g. `192.168.5.136:9000`)
 - `NODE_AGENT_NETWORK_BACKEND` (`bridge`, `tap`, or `user`)
 - `NODE_AGENT_NETWORK_INTERFACE` (required for `bridge`/`tap`)
@@ -34,6 +36,10 @@ dev mode).
 DragonFlyBSD defaults to `NODE_AGENT_NETWORK_BACKEND=user` to avoid bridge setup
 requirements during initial bring-up. Switch to `bridge`/`tap` only after host
 network interfaces are provisioned.
+
+`NODE_AGENT_BIND_HOST` / `NODE_AGENT_BIND_PORT` control what address the service
+listens on. `NODE_AGENT_ADVERTISE_ADDR` is the host:port the control-plane calls;
+it should usually use the same port and a routable address for that host.
 
 ## 2) Linux service management (systemd)
 
@@ -54,7 +60,7 @@ sudo service jenkins_qemu_node_agent start
 sudo service jenkins_qemu_node_agent status
 ```
 
-The rc.d service wraps uvicorn with `/usr/sbin/daemon`, so it runs detached with
+The rc.d service wraps the Python node-agent entrypoint with `/usr/sbin/daemon`, so it runs detached with
 pidfile `/var/run/jenkins_qemu_node_agent/jenkins_qemu_node_agent.pid`.
 Privilege drop is handled by `daemon -u jenkins-qemu-agent`.
 The script tracks the daemon wrapper PID (`daemon -P`), so `start/stop/status`
@@ -62,8 +68,8 @@ operate consistently.
 
 ## 4) Validation
 
-- Agent health: `curl http://<host>:9000/healthz`
-- Capacity: `curl http://<host>:9000/v1/capacity`
+- Agent health: `curl http://<host>:<NODE_AGENT_BIND_PORT>/healthz`
+- Capacity: `curl http://<host>:<NODE_AGENT_BIND_PORT>/v1/capacity`
 - In control-plane UI (`/ui`), host should appear with matching platform (`family/flavor/arch`) and selected accelerator.
 
 ## 5) Manual base image customization
@@ -147,7 +153,7 @@ Useful flags:
 
 - Need one-shot VM bootstrap diagnostics without guest SSH
   - Use node-agent debug endpoint:
-    - `curl http://<host>:9000/v1/vms/<vm_id>/debug`
+    - `curl http://<host>:<NODE_AGENT_BIND_PORT>/v1/vms/<vm_id>/debug`
   - Response includes `serial_tail`, generated `user_data`, sanitized `jenkins_env`, and QEMU `launch_command`.
   - Bootstrap stage markers appear as `BOOTSTRAP_STAGE=...` lines in `serial_tail`.
 - VM launches fail on Linux
