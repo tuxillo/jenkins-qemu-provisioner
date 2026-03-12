@@ -11,6 +11,7 @@ from node_agent.state import list_vms
 
 
 logger = logging.getLogger(__name__)
+ACTIVE_VM_STATES = {"RUNNING", "BOOTING", "PROVISIONING"}
 
 
 class ControlPlaneSession:
@@ -40,18 +41,63 @@ def _base_headers(token: str | None) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def register_host(client: httpx.Client, state: ControlPlaneSession) -> None:
-    settings = get_agent_settings()
+def _physical_capacity() -> tuple[int, int]:
     cpu_total = os.cpu_count() or 1
     ram_total_mb = max(_detect_total_ram_mb(), 256)
+    return cpu_total, ram_total_mb
+
+
+def _allocatable_capacity(
+    settings, cpu_total: int, ram_total_mb: int
+) -> tuple[int, int]:
+    cpu_allocatable = settings.allocatable_vcpu or cpu_total
+    ram_allocatable_mb = settings.allocatable_ram_mb or ram_total_mb
+    cpu_allocatable = max(min(cpu_allocatable, cpu_total), 1)
+    ram_allocatable_mb = max(min(ram_allocatable_mb, ram_total_mb), 256)
+    return cpu_allocatable, ram_allocatable_mb
+
+
+def current_capacity_snapshot() -> dict[str, int | list[str]]:
+    settings = get_agent_settings()
+    cpu_total, ram_total_mb = _physical_capacity()
+    cpu_allocatable, ram_allocatable_mb = _allocatable_capacity(
+        settings, cpu_total, ram_total_mb
+    )
+
+    rows = list_vms()
+    running_ids = [
+        vm_id
+        for row in rows
+        for vm_id in [row.get("vm_id")]
+        if row.get("state") in ACTIVE_VM_STATES and isinstance(vm_id, str) and vm_id
+    ]
+    reserved_cpu, reserved_ram_mb = _reserved_capacity(rows)
+    cpu_free = max(cpu_allocatable - reserved_cpu, 0)
+    ram_free_mb = max(ram_allocatable_mb - reserved_ram_mb, 0)
+    return {
+        "cpu_total": cpu_total,
+        "ram_total_mb": ram_total_mb,
+        "cpu_allocatable": cpu_allocatable,
+        "ram_allocatable_mb": ram_allocatable_mb,
+        "cpu_free": cpu_free,
+        "ram_free_mb": ram_free_mb,
+        "running_vm_ids": running_ids,
+    }
+
+
+def register_host(client: httpx.Client, state: ControlPlaneSession) -> None:
+    settings = get_agent_settings()
+    capacity = current_capacity_snapshot()
     advertised_addr = (
         settings.advertise_addr or f"{settings.bind_host}:{settings.bind_port}"
     )
     payload = {
         "agent_version": "0.1.0",
         "qemu_version": "unknown",
-        "cpu_total": cpu_total,
-        "ram_total_mb": ram_total_mb,
+        "cpu_total": capacity["cpu_total"],
+        "ram_total_mb": capacity["ram_total_mb"],
+        "cpu_allocatable": capacity["cpu_allocatable"],
+        "ram_allocatable_mb": capacity["ram_allocatable_mb"],
         "base_image_ids": [],
         "addr": advertised_addr,
         "os_family": settings.os_family,
@@ -81,23 +127,16 @@ def send_heartbeat(client: httpx.Client, state: ControlPlaneSession) -> None:
     if not state.session_token:
         raise RuntimeError("missing session token")
 
-    cpu_total = os.cpu_count() or 1
-    ram_total_mb = max(_detect_total_ram_mb(), 256)
-
-    rows = list_vms()
-    running_ids = [
-        r.get("vm_id")
-        for r in rows
-        if r.get("state") in {"RUNNING", "BOOTING", "PROVISIONING"}
-    ]
-    reserved_cpu, reserved_ram_mb = _reserved_capacity(rows)
-    cpu_free = max(cpu_total - reserved_cpu, 0)
-    ram_free_mb = max(ram_total_mb - reserved_ram_mb, 0)
+    capacity = current_capacity_snapshot()
     payload = {
-        "cpu_free": cpu_free,
-        "ram_free_mb": ram_free_mb,
+        "cpu_total": capacity["cpu_total"],
+        "ram_total_mb": capacity["ram_total_mb"],
+        "cpu_allocatable": capacity["cpu_allocatable"],
+        "ram_allocatable_mb": capacity["ram_allocatable_mb"],
+        "cpu_free": capacity["cpu_free"],
+        "ram_free_mb": capacity["ram_free_mb"],
         "io_pressure": 0.0,
-        "running_vm_ids": running_ids,
+        "running_vm_ids": capacity["running_vm_ids"],
         "os_family": settings.os_family,
         "os_flavor": settings.os_flavor,
         "os_version": settings.os_version,
@@ -117,9 +156,8 @@ def send_heartbeat(client: httpx.Client, state: ControlPlaneSession) -> None:
 def _reserved_capacity(rows: list[dict]) -> tuple[int, int]:
     reserved_cpu = 0
     reserved_ram_mb = 0
-    active_states = {"RUNNING", "BOOTING", "PROVISIONING"}
     for row in rows:
-        if row.get("state") not in active_states:
+        if row.get("state") not in ACTIVE_VM_STATES:
             continue
         reserved_cpu += _coerce_nonnegative_int(row.get("vcpu"))
         reserved_ram_mb += _coerce_nonnegative_int(row.get("ram_mb"))

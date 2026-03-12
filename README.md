@@ -41,6 +41,7 @@ docker compose up -d --build
 UI note:
 - `/ui` is read-only and renders from a server-embedded snapshot.
 - It does not query control-plane APIs from the browser.
+- Host capacity in the UI distinguishes physical totals from allocatable VM budgets.
 
 Local E2E note:
 - `fake-node-agent` is disabled by default; enable with profile: `docker compose --profile fake-agent up -d`.

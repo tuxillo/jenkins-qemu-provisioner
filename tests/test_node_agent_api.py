@@ -23,6 +23,7 @@ def setup_function() -> None:
     db_path = os.environ["NODE_AGENT_STATE_DB_PATH"]
     if os.path.exists(db_path):
         os.remove(db_path)
+    get_agent_settings.cache_clear()
     initialize_state()
 
 
@@ -92,3 +93,26 @@ def test_vm_debug_endpoint_exposes_serial_and_seed_artifacts() -> None:
     assert "agent_download_ok" in (data["serial_tail"] or "")
     assert "qemu-system" in (data["launch_command"] or "")
     assert "JENKINS_JNLP_SECRET=***" in (data["jenkins_env"] or "")
+
+
+def test_capacity_endpoint_reports_allocatable_pool(monkeypatch) -> None:
+    monkeypatch.setenv("NODE_AGENT_ALLOCATABLE_VCPU", "6")
+    monkeypatch.setenv("NODE_AGENT_ALLOCATABLE_RAM_MB", "12288")
+    monkeypatch.setattr("node_agent.heartbeat.os.cpu_count", lambda: 8)
+    monkeypatch.setattr("node_agent.heartbeat._detect_total_ram_mb", lambda: 16384)
+    get_agent_settings.cache_clear()
+
+    client = TestClient(app)
+    vm_id = "vm-test-capacity"
+    put = client.put(f"/v1/vms/{vm_id}", json=_payload(vm_id))
+    assert put.status_code == 200
+
+    cap = client.get("/v1/capacity")
+    assert cap.status_code == 200
+    body = cap.json()
+    assert body["cpu_total"] >= body["cpu_allocatable"]
+    assert body["cpu_allocatable"] == 6
+    assert body["cpu_free"] == 4
+    assert body["ram_total_mb"] >= body["ram_allocatable_mb"]
+    assert body["ram_allocatable_mb"] == 12288
+    assert body["ram_free_mb"] == 10240

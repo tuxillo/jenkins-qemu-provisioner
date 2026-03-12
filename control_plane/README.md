@@ -24,6 +24,7 @@ Notes:
 - Ephemeral Jenkins agents use WebSocket transport by default in dev (`CP_JENKINS_AGENT_TRANSPORT=websocket`).
 - Control-plane stores SQLite data in the `control_plane_data` volume at `/data/control_plane.db`.
 - UI is read-only and uses a server-embedded snapshot (no browser API polling).
+- Host capacity tracking separates physical totals from allocatable VM budgets used for scheduling.
 
 ## Environment Variables
 

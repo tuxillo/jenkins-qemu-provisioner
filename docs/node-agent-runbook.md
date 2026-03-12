@@ -23,6 +23,8 @@ Then edit `/etc/jenkins-qemu-node-agent/env`:
 - `NODE_AGENT_BIND_HOST` (defaults to `0.0.0.0`)
 - `NODE_AGENT_BIND_PORT` (defaults to `9000`)
 - `NODE_AGENT_ADVERTISE_ADDR` (reachable from control-plane, e.g. `192.168.5.136:9000`)
+- `NODE_AGENT_ALLOCATABLE_VCPU` (optional explicit vCPU budget for managed VMs)
+- `NODE_AGENT_ALLOCATABLE_RAM_MB` (optional explicit RAM budget for managed VMs)
 - `NODE_AGENT_NETWORK_BACKEND` (`bridge`, `tap`, or `user`)
 - `NODE_AGENT_NETWORK_INTERFACE` (required for `bridge`/`tap`)
 
@@ -40,6 +42,23 @@ network interfaces are provisioned.
 `NODE_AGENT_BIND_HOST` / `NODE_AGENT_BIND_PORT` control what address the service
 listens on. `NODE_AGENT_ADVERTISE_ADDR` is the host:port the control-plane calls;
 it should usually use the same port and a routable address for that host.
+
+Capacity model:
+
+- `cpu_total` / `ram_total_mb` remain the physical host totals reported for visibility.
+- `NODE_AGENT_ALLOCATABLE_VCPU` / `NODE_AGENT_ALLOCATABLE_RAM_MB` define the VM pool budget used for scheduling.
+- If allocatable values are unset, node-agent falls back to the physical totals for backward compatibility.
+- Control-plane schedules from `cpu_free` / `ram_free_mb`, which are computed as allocatable budget minus active managed VM reservations.
+
+Example shared host budget:
+
+```bash
+NODE_AGENT_ALLOCATABLE_VCPU=8
+NODE_AGENT_ALLOCATABLE_RAM_MB=16384
+```
+
+This means a 16-core / 64 GiB host can reserve half its resources for the OS and
+other workloads while still advertising the full physical machine size in the UI.
 
 ## 2) Linux service management (systemd)
 
@@ -76,7 +95,7 @@ On DragonFlyBSD, rotate this logfile with a service restart.
 - Agent health: `curl http://<host>:<NODE_AGENT_BIND_PORT>/healthz`
 - Capacity: `curl http://<host>:<NODE_AGENT_BIND_PORT>/v1/capacity`
 - Service log: `tail -f /var/log/jenkins-qemu-node-agent.log`
-- In control-plane UI (`/ui`), host should appear with matching platform (`family/flavor/arch`) and selected accelerator.
+- In control-plane UI (`/ui`), host should appear with matching platform (`family/flavor/arch`), selected accelerator, physical totals, allocatable totals, and current free schedulable capacity.
 
 ## 5) Manual base image customization
 
@@ -146,6 +165,7 @@ Useful flags:
 - Host not schedulable
   - Verify heartbeat reaches control-plane and host is `enabled=true`.
   - Verify host free capacity is non-zero in control-plane (`cpu_free`, `ram_free_mb`).
+  - Verify allocatable budget is large enough for the requested VM profile (`cpu_allocatable`, `ram_allocatable_mb`).
 - VMs fail to launch after lease creation
   - Check node-agent service log (`/var/log/jenkins-qemu-node-agent.log`) for launch stage details (`cloud-init`, overlay, `qemu` command).
   - Verify base image exists at `NODE_AGENT_BASE_IMAGE_DIR/<base_image_id>.qcow2`.

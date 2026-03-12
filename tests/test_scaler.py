@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, cast
 
 from control_plane.db import Base, SessionLocal, engine
@@ -34,8 +35,10 @@ def test_scaler_launches_with_caps(monkeypatch):
             host_id="h1",
             enabled=True,
             cpu_total=16,
+            cpu_allocatable=16,
             cpu_free=16,
             ram_total_mb=32768,
+            ram_allocatable_mb=32768,
             ram_free_mb=32768,
             io_pressure=0.1,
             last_seen=datetime.now(UTC).replace(tzinfo=None),
@@ -70,8 +73,10 @@ def test_scaler_maps_node_wait_queue_to_active_lease_label(monkeypatch):
             host_id="h1",
             enabled=True,
             cpu_total=16,
+            cpu_allocatable=16,
             cpu_free=16,
             ram_total_mb=32768,
+            ram_allocatable_mb=32768,
             ram_free_mb=32768,
             io_pressure=0.1,
             last_seen=now,
@@ -115,3 +120,57 @@ def test_scaler_maps_node_wait_queue_to_active_lease_label(monkeypatch):
 
     assert len(calls) == 1
     assert calls[0]["label"] == "dragonflybsd-nvmm"
+
+
+def test_scaler_respects_allocatable_budget_during_same_tick_burst(monkeypatch):
+    now = datetime.now(UTC).replace(tzinfo=None)
+    db = SessionLocal()
+    db.add(
+        Host(
+            host_id="h1",
+            enabled=True,
+            cpu_total=16,
+            cpu_allocatable=2,
+            cpu_free=2,
+            ram_total_mb=32768,
+            ram_allocatable_mb=4096,
+            ram_free_mb=4096,
+            io_pressure=0.1,
+            last_seen=now,
+            os_family="linux",
+            os_flavor="linux",
+            selected_accel="kvm",
+            supported_accels='["kvm","tcg"]',
+        )
+    )
+    db.commit()
+    db.close()
+
+    calls = []
+
+    def fake_provision_one(**kwargs):
+        calls.append(kwargs)
+        return f"lease-{len(calls)}"
+
+    monkeypatch.setattr(scaler, "provision_one", fake_provision_one)
+    monkeypatch.setattr(
+        scaler,
+        "get_settings",
+        lambda: SimpleNamespace(
+            host_stale_timeout_sec=20,
+            label_max_inflight=5,
+            global_max_vms=100,
+            label_burst=3,
+            loop_interval_sec=5,
+        ),
+    )
+
+    jenkins = FakeJenkins({"linux-small": 3})
+
+    def node_agent_factory(_host_id):
+        return object()
+
+    scaler.scale_once(cast(Any, jenkins), node_agent_factory)
+
+    assert len(calls) == 1
+    assert calls[0]["host_id"] == "h1"

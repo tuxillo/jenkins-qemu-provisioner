@@ -12,3 +12,7 @@ def test_apply_migrations_creates_tables():
     assert "hosts" in tables
     assert "events" in tables
     assert "schema_migrations" in tables
+
+    host_columns = {column["name"] for column in inspector.get_columns("hosts")}
+    assert "cpu_allocatable" in host_columns
+    assert "ram_allocatable_mb" in host_columns

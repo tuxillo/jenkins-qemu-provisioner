@@ -19,6 +19,8 @@ class FakeAgentSettings(BaseSettings):
 
     cpu_total: int = Field(default=8, ge=1)
     ram_total_mb: int = Field(default=16384, ge=1)
+    cpu_allocatable: int | None = Field(default=None, ge=1)
+    ram_allocatable_mb: int | None = Field(default=None, ge=256)
     io_pressure: float = Field(default=0.0, ge=0.0)
 
     control_plane_url: str = Field(default="http://control-plane:8000")
@@ -29,6 +31,14 @@ class FakeAgentSettings(BaseSettings):
     @property
     def supported_accels(self) -> list[str]:
         return [x.strip() for x in self.supported_accels_csv.split(",") if x.strip()]
+
+    @property
+    def effective_cpu_allocatable(self) -> int:
+        return min(self.cpu_allocatable or self.cpu_total, self.cpu_total)
+
+    @property
+    def effective_ram_allocatable_mb(self) -> int:
+        return min(self.ram_allocatable_mb or self.ram_total_mb, self.ram_total_mb)
 
 
 @lru_cache(maxsize=1)

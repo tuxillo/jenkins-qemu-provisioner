@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class RegisterHostRequest(BaseModel):
@@ -8,6 +8,8 @@ class RegisterHostRequest(BaseModel):
     qemu_version: str
     cpu_total: int = Field(ge=1)
     ram_total_mb: int = Field(ge=256)
+    cpu_allocatable: int | None = Field(default=None, ge=1)
+    ram_allocatable_mb: int | None = Field(default=None, ge=256)
     base_image_ids: list[str] = Field(default_factory=list)
     addr: str
     os_family: str | None = None
@@ -17,6 +19,17 @@ class RegisterHostRequest(BaseModel):
     qemu_binary: str | None = None
     supported_accels: list[str] = Field(default_factory=list)
     selected_accel: str | None = None
+
+    @model_validator(mode="after")
+    def validate_allocatable_capacity(self) -> "RegisterHostRequest":
+        if self.cpu_allocatable is not None and self.cpu_allocatable > self.cpu_total:
+            raise ValueError("cpu_allocatable must be <= cpu_total")
+        if (
+            self.ram_allocatable_mb is not None
+            and self.ram_allocatable_mb > self.ram_total_mb
+        ):
+            raise ValueError("ram_allocatable_mb must be <= ram_total_mb")
+        return self
 
 
 class RegisterHostResponse(BaseModel):
@@ -28,6 +41,10 @@ class RegisterHostResponse(BaseModel):
 
 
 class HeartbeatRequest(BaseModel):
+    cpu_total: int | None = Field(default=None, ge=1)
+    ram_total_mb: int | None = Field(default=None, ge=256)
+    cpu_allocatable: int | None = Field(default=None, ge=1)
+    ram_allocatable_mb: int | None = Field(default=None, ge=256)
     cpu_free: int = Field(ge=0)
     ram_free_mb: int = Field(ge=0)
     io_pressure: float = Field(ge=0.0)
@@ -39,6 +56,22 @@ class HeartbeatRequest(BaseModel):
     qemu_binary: str | None = None
     supported_accels: list[str] = Field(default_factory=list)
     selected_accel: str | None = None
+
+    @model_validator(mode="after")
+    def validate_allocatable_capacity(self) -> "HeartbeatRequest":
+        if (
+            self.cpu_total is not None
+            and self.cpu_allocatable is not None
+            and self.cpu_allocatable > self.cpu_total
+        ):
+            raise ValueError("cpu_allocatable must be <= cpu_total")
+        if (
+            self.ram_total_mb is not None
+            and self.ram_allocatable_mb is not None
+            and self.ram_allocatable_mb > self.ram_total_mb
+        ):
+            raise ValueError("ram_allocatable_mb must be <= ram_total_mb")
+        return self
 
 
 class VMStatusRequest(BaseModel):

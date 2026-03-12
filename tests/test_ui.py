@@ -11,7 +11,7 @@ get_settings.cache_clear()
 
 from control_plane.db import Base, SessionLocal, engine  # noqa: E402
 from control_plane.main import app  # noqa: E402
-from control_plane.models import Event  # noqa: E402
+from control_plane.models import Event, Host  # noqa: E402
 
 
 def setup_function() -> None:
@@ -83,3 +83,39 @@ def test_ui_snapshot_escapes_html_like_event_payload() -> None:
     assert match is not None
     snapshot = json.loads(match.group(1))
     assert snapshot["events"][0]["event_type"] == "lease.failed"
+
+
+def test_ui_snapshot_includes_allocatable_host_capacity() -> None:
+    with SessionLocal() as db:
+        db.add(
+            Host(
+                host_id="host-a",
+                enabled=True,
+                cpu_total=16,
+                cpu_allocatable=12,
+                cpu_free=8,
+                ram_total_mb=32768,
+                ram_allocatable_mb=24576,
+                ram_free_mb=16384,
+            )
+        )
+        db.commit()
+
+    client = TestClient(app)
+    response = client.get("/ui")
+    assert response.status_code == 200
+
+    match = re.search(
+        r'<script id="cp-snapshot" type="application/json">(.*)</script>',
+        response.text,
+    )
+    assert match is not None
+
+    snapshot = json.loads(match.group(1))
+    host = snapshot["hosts"][0]
+    assert host["cpu_total"] == 16
+    assert host["cpu_allocatable"] == 12
+    assert host["cpu_free"] == 8
+    assert host["ram_total_mb"] == 32768
+    assert host["ram_allocatable_mb"] == 24576
+    assert host["ram_free_mb"] == 16384

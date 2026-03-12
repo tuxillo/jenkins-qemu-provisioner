@@ -36,3 +36,5 @@ def test_fake_agent_capacity() -> None:
     body = cap.json()
     assert "host_id" in body
     assert "selected_accel" in body
+    assert "cpu_allocatable" in body
+    assert "ram_allocatable_mb" in body

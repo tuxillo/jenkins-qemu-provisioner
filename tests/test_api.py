@@ -36,8 +36,10 @@ def test_host_register_and_heartbeat():
             enabled=True,
             bootstrap_token_hash=hash_token("bootstrap"),
             cpu_total=16,
+            cpu_allocatable=16,
             cpu_free=16,
             ram_total_mb=32768,
+            ram_allocatable_mb=32768,
             ram_free_mb=32768,
         )
     )
@@ -53,6 +55,8 @@ def test_host_register_and_heartbeat():
             "qemu_version": "9.0",
             "cpu_total": 16,
             "ram_total_mb": 32768,
+            "cpu_allocatable": 12,
+            "ram_allocatable_mb": 24576,
             "base_image_ids": ["base-a"],
             "addr": "10.0.0.10",
             "os_family": "linux",
@@ -69,6 +73,10 @@ def test_host_register_and_heartbeat():
         "/v1/hosts/host-a/heartbeat",
         headers={"Authorization": f"Bearer {session_token}"},
         json={
+            "cpu_total": 16,
+            "ram_total_mb": 32768,
+            "cpu_allocatable": 12,
+            "ram_allocatable_mb": 24576,
             "cpu_free": 12,
             "ram_free_mb": 24576,
             "io_pressure": 0.15,
@@ -77,6 +85,16 @@ def test_host_register_and_heartbeat():
     )
     assert hb.status_code == 200
     assert hb.json() == {"ok": True}
+
+    with SessionLocal() as db_verify:
+        host = db_verify.get(Host, "host-a")
+        assert host is not None
+        assert host.cpu_total == 16
+        assert host.cpu_allocatable == 12
+        assert host.cpu_free == 12
+        assert host.ram_total_mb == 32768
+        assert host.ram_allocatable_mb == 24576
+        assert host.ram_free_mb == 24576
 
 
 def test_heartbeat_rejects_expired_session():
@@ -90,8 +108,10 @@ def test_heartbeat_rejects_expired_session():
                 tzinfo=None
             ),
             cpu_total=8,
+            cpu_allocatable=8,
             cpu_free=8,
             ram_total_mb=16384,
+            ram_allocatable_mb=16384,
             ram_free_mb=16384,
         )
     )
@@ -121,8 +141,10 @@ def test_disable_then_enable_host():
             bootstrap_token_hash=hash_token("boot"),
             session_token_hash=hash_token("session"),
             cpu_total=8,
+            cpu_allocatable=8,
             cpu_free=8,
             ram_total_mb=16384,
+            ram_allocatable_mb=16384,
             ram_free_mb=16384,
         )
     )
@@ -148,8 +170,10 @@ def test_heartbeat_rejects_accel_mismatch():
                 tzinfo=None
             ),
             cpu_total=8,
+            cpu_allocatable=8,
             cpu_free=8,
             ram_total_mb=16384,
+            ram_allocatable_mb=16384,
             ram_free_mb=16384,
         )
     )
@@ -193,3 +217,9 @@ def test_register_unknown_host_allowed_in_dev_mode():
     )
     assert reg.status_code == 200
     assert reg.json()["host_id"] == "auto-host"
+
+    with SessionLocal() as db_verify:
+        host = db_verify.get(Host, "auto-host")
+        assert host is not None
+        assert host.cpu_allocatable == 8
+        assert host.ram_allocatable_mb == 16384

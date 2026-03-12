@@ -37,6 +37,8 @@ def _register_and_heartbeat_worker(stop_event: threading.Event) -> None:
                         "qemu_version": "fake",
                         "cpu_total": settings.cpu_total,
                         "ram_total_mb": settings.ram_total_mb,
+                        "cpu_allocatable": settings.effective_cpu_allocatable,
+                        "ram_allocatable_mb": settings.effective_ram_allocatable_mb,
                         "base_image_ids": ["fake-base"],
                         "addr": f"{settings.bind_host}:{settings.bind_port}",
                         "os_family": settings.os_family,
@@ -54,9 +56,17 @@ def _register_and_heartbeat_worker(stop_event: threading.Event) -> None:
                     session_token = reg.json().get("session_token")
 
                 hb_payload = {
-                    "cpu_free": max(settings.cpu_total - len(_running_vm_ids()), 0),
+                    "cpu_total": settings.cpu_total,
+                    "ram_total_mb": settings.ram_total_mb,
+                    "cpu_allocatable": settings.effective_cpu_allocatable,
+                    "ram_allocatable_mb": settings.effective_ram_allocatable_mb,
+                    "cpu_free": max(
+                        settings.effective_cpu_allocatable - len(_running_vm_ids()), 0
+                    ),
                     "ram_free_mb": max(
-                        settings.ram_total_mb - (len(_running_vm_ids()) * 1024), 0
+                        settings.effective_ram_allocatable_mb
+                        - (len(_running_vm_ids()) * 1024),
+                        0,
                     ),
                     "io_pressure": settings.io_pressure,
                     "running_vm_ids": _running_vm_ids(),
@@ -202,9 +212,11 @@ def capacity() -> dict:
         "selected_accel": settings.selected_accel,
         "supported_accels": settings.supported_accels,
         "cpu_total": settings.cpu_total,
-        "cpu_free": max(settings.cpu_total - running, 0),
+        "cpu_allocatable": settings.effective_cpu_allocatable,
+        "cpu_free": max(settings.effective_cpu_allocatable - running, 0),
         "ram_total_mb": settings.ram_total_mb,
-        "ram_free_mb": max(settings.ram_total_mb - running * 1024, 0),
+        "ram_allocatable_mb": settings.effective_ram_allocatable_mb,
+        "ram_free_mb": max(settings.effective_ram_allocatable_mb - running * 1024, 0),
         "io_pressure": settings.io_pressure,
         "running_vms": running,
     }

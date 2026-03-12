@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 from pathlib import Path
 from datetime import UTC, datetime
 
@@ -8,6 +7,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query
 
 from node_agent.config import get_agent_settings
+from node_agent.heartbeat import current_capacity_snapshot
 from node_agent.qemu_runtime import (
     build_qemu_command,
     create_overlay,
@@ -330,28 +330,8 @@ def terminate_vm(vm_id: str, reason: str = "requested", force: bool = False) -> 
 @router.get("/v1/capacity")
 def capacity() -> dict:
     settings = get_agent_settings()
-    cpu_total = os.cpu_count() or 1
-    load_1 = os.getloadavg()[0] if hasattr(os, "getloadavg") else 0.0
-    cpu_free = max(int(cpu_total - load_1), 0)
-
-    ram_total_mb = 0
-    ram_free_mb = 0
-    meminfo = Path("/proc/meminfo")
-    if meminfo.exists():
-        values = {}
-        for line in meminfo.read_text(encoding="utf-8").splitlines():
-            parts = line.split(":", 1)
-            if len(parts) == 2:
-                values[parts[0].strip()] = parts[1].strip()
-        total_kb = int(values.get("MemTotal", "0 kB").split()[0])
-        avail_kb = int(values.get("MemAvailable", "0 kB").split()[0])
-        ram_total_mb = total_kb // 1024
-        ram_free_mb = avail_kb // 1024
-
-    rows = list_vms()
-    running = [
-        r for r in rows if r.get("state") in {"RUNNING", "BOOTING", "PROVISIONING"}
-    ]
+    snapshot = current_capacity_snapshot()
+    running_vm_ids = snapshot["running_vm_ids"]
     return {
         "host_id": settings.host_id,
         "os_family": settings.os_family,
@@ -359,10 +339,12 @@ def capacity() -> dict:
         "cpu_arch": settings.cpu_arch,
         "selected_accel": settings.qemu_accel,
         "supported_accels": settings.supported_accels,
-        "cpu_free": cpu_free,
-        "cpu_total": cpu_total,
-        "ram_total_mb": ram_total_mb,
-        "ram_free_mb": ram_free_mb,
+        "cpu_total": snapshot["cpu_total"],
+        "cpu_allocatable": snapshot["cpu_allocatable"],
+        "cpu_free": snapshot["cpu_free"],
+        "ram_total_mb": snapshot["ram_total_mb"],
+        "ram_allocatable_mb": snapshot["ram_allocatable_mb"],
+        "ram_free_mb": snapshot["ram_free_mb"],
         "io_pressure": 0.0,
-        "running_vms": len(running),
+        "running_vms": len(running_vm_ids) if isinstance(running_vm_ids, list) else 0,
     }

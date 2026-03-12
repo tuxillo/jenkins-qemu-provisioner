@@ -337,10 +337,13 @@ def scale_once(jenkins: JenkinsClient, node_agent_factory) -> None:
                 )
             continue
 
+        profile = NODE_PROFILES[choose_profile(label)]
         for _ in range(launchable):
             if not candidates:
                 break
             host = candidates[0]
+            host.cpu_free = max(host.cpu_free - profile["vcpu"], 0)
+            host.ram_free_mb = max(host.ram_free_mb - profile["ram_mb"], 0)
             node_agent = node_agent_factory(host.host_id)
             try:
                 provision_one(
@@ -393,5 +396,6 @@ def scale_once(jenkins: JenkinsClient, node_agent_factory) -> None:
                     node_agent.base_url,
                     exc,
                 )
+            candidates = _eligible_hosts(label, hosts)
 
         _cooldowns[label] = now + timedelta(seconds=settings.loop_interval_sec * 3)

@@ -77,8 +77,10 @@ class Host(Base):
     selected_accel: Mapped[str | None] = mapped_column(String(32))
 
     cpu_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    cpu_allocatable: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cpu_free: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     ram_total_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    ram_allocatable_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     ram_free_mb: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     io_pressure: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     last_seen: Mapped[datetime | None] = mapped_column(DateTime)

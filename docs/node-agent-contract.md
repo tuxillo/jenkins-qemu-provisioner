@@ -12,6 +12,9 @@ Host registration and heartbeat payloads include:
 - `qemu_binary`: absolute qemu binary path used by agent
 - `supported_accels`: list of supported accelerators (for example `kvm`, `nvmm`, `tcg`)
 - `selected_accel`: accelerator selected in agent config and used for VM launches
+- `cpu_total`, `ram_total_mb`: physical host totals for visibility
+- `cpu_allocatable`, `ram_allocatable_mb`: schedulable VM pool budget
+- `cpu_free`, `ram_free_mb`: current free capacity inside the allocatable VM pool
 
 Rules:
 
@@ -38,6 +41,7 @@ Required config fields:
 Optional fields:
 
 - `node_agent_auth_token`
+- `allocatable_vcpu`, `allocatable_ram_mb`
 - `heartbeat_interval_sec`
 - `ttl_check_interval_sec`
 - `reconcile_interval_sec`
@@ -49,7 +53,7 @@ Optional fields:
 - `GET /v1/vms/{vm_id}`: VM state
 - `DELETE /v1/vms/{vm_id}`: ensure VM terminated + overlay cleaned
 - `GET /v1/vms`: list VM records for reconciliation
-- `GET /v1/capacity`: report host free CPU/RAM and IO pressure
+- `GET /v1/capacity`: report physical totals, allocatable totals, free schedulable CPU/RAM, and IO pressure
 - `GET /healthz`: agent liveness
 
 ## Service Management

@@ -37,32 +37,62 @@ def upsert_host(
     host_id: str,
     cpu_total: int,
     ram_total_mb: int,
+    cpu_allocatable: int | None = None,
+    ram_allocatable_mb: int | None = None,
     bootstrap_token_hash: str | None = None,
 ) -> Host:
+    resolved_cpu_allocatable = min(cpu_allocatable or cpu_total, cpu_total)
+    resolved_ram_allocatable_mb = min(ram_allocatable_mb or ram_total_mb, ram_total_mb)
     host = get_host(session, host_id)
     if host is None:
         host = Host(
             host_id=host_id,
             enabled=True,
             cpu_total=cpu_total,
-            cpu_free=cpu_total,
+            cpu_allocatable=resolved_cpu_allocatable,
+            cpu_free=resolved_cpu_allocatable,
             ram_total_mb=ram_total_mb,
-            ram_free_mb=ram_total_mb,
+            ram_allocatable_mb=resolved_ram_allocatable_mb,
+            ram_free_mb=resolved_ram_allocatable_mb,
             bootstrap_token_hash=bootstrap_token_hash,
         )
         session.add(host)
     else:
         host.cpu_total = cpu_total
+        host.cpu_allocatable = resolved_cpu_allocatable
         host.ram_total_mb = ram_total_mb
+        host.ram_allocatable_mb = resolved_ram_allocatable_mb
     host.last_seen = now_utc()
     return host
 
 
 def update_host_heartbeat(
-    session: Session, host: Host, cpu_free: int, ram_free_mb: int, io_pressure: float
+    session: Session,
+    host: Host,
+    cpu_total: int | None,
+    ram_total_mb: int | None,
+    cpu_allocatable: int | None,
+    ram_allocatable_mb: int | None,
+    cpu_free: int,
+    ram_free_mb: int,
+    io_pressure: float,
 ) -> None:
-    host.cpu_free = cpu_free
-    host.ram_free_mb = ram_free_mb
+    resolved_cpu_total = cpu_total or host.cpu_total
+    resolved_ram_total_mb = ram_total_mb or host.ram_total_mb
+    resolved_cpu_allocatable = min(
+        cpu_allocatable or host.cpu_allocatable or resolved_cpu_total,
+        resolved_cpu_total,
+    )
+    resolved_ram_allocatable_mb = min(
+        ram_allocatable_mb or host.ram_allocatable_mb or resolved_ram_total_mb,
+        resolved_ram_total_mb,
+    )
+    host.cpu_total = resolved_cpu_total
+    host.ram_total_mb = resolved_ram_total_mb
+    host.cpu_allocatable = resolved_cpu_allocatable
+    host.ram_allocatable_mb = resolved_ram_allocatable_mb
+    host.cpu_free = min(max(cpu_free, 0), resolved_cpu_allocatable)
+    host.ram_free_mb = min(max(ram_free_mb, 0), resolved_ram_allocatable_mb)
     host.io_pressure = io_pressure
     host.last_seen = now_utc()
 

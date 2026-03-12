@@ -48,14 +48,14 @@
   }
 
   function cpuUse(host) {
-    const total = toNumber(host.cpu_total);
+    const total = toNumber(host.cpu_allocatable || host.cpu_total);
     const free = toNumber(host.cpu_free);
     if (total <= 0) return 0;
     return Math.max(0, Math.min(100, Math.round(((total - free) / total) * 100)));
   }
 
   function ramUse(host) {
-    const total = toNumber(host.ram_total_mb);
+    const total = toNumber(host.ram_allocatable_mb || host.ram_total_mb);
     const free = toNumber(host.ram_free_mb);
     if (total <= 0) return 0;
     return Math.max(0, Math.min(100, Math.round(((total - free) / total) * 100)));
@@ -278,8 +278,8 @@
           <td><span class="badge host-${availability.toLowerCase()}">${esc(availability)}</span></td>
           <td>${clip(`${h.os_family || "-"}/${h.os_flavor || "-"}/${h.cpu_arch || "-"}`)}</td>
           <td>${clip(h.addr)}</td>
-          <td>${clip(`${h.cpu_free}/${h.cpu_total} (${cpuUse(h)}%)`)}</td>
-          <td>${clip(`${h.ram_free_mb}/${h.ram_total_mb} MB (${ramUse(h)}%)`)}</td>
+          <td>${clip(`free ${h.cpu_free}/${h.cpu_allocatable || h.cpu_total} alloc (${cpuUse(h)}%), phys ${h.cpu_total}`)}</td>
+          <td>${clip(`free ${h.ram_free_mb}/${h.ram_allocatable_mb || h.ram_total_mb} MB alloc (${ramUse(h)}%), phys ${h.ram_total_mb} MB`)}</td>
           <td>${clip(Number(h.io_pressure || 0).toFixed(2))}</td>
           <td>${clip(`${h.last_seen || "-"} (${ageText(h.last_seen)})`)}</td>
         </tr>`;
@@ -371,6 +371,8 @@
         h.cpu_arch,
         h.addr,
         h.selected_accel,
+        h.cpu_allocatable,
+        h.ram_allocatable_mb,
       ]
         .join(" ")
         .toLowerCase();

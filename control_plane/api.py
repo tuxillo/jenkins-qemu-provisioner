@@ -49,6 +49,10 @@ def _to_iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
 
+def _resolved_allocatable(total: int, allocatable: int | None) -> int:
+    return min(allocatable or total, total)
+
+
 def _host_availability(host: Host, now: datetime, stale_timeout_sec: int) -> str:
     if not host.enabled:
         return "DISABLED"
@@ -95,8 +99,10 @@ def _build_snapshot(db: Session) -> dict:
                 "addr": h.addr,
                 "last_seen": _to_iso(h.last_seen),
                 "cpu_total": h.cpu_total,
+                "cpu_allocatable": h.cpu_allocatable,
                 "cpu_free": h.cpu_free,
                 "ram_total_mb": h.ram_total_mb,
+                "ram_allocatable_mb": h.ram_allocatable_mb,
                 "ram_free_mb": h.ram_free_mb,
                 "io_pressure": h.io_pressure,
             }
@@ -174,6 +180,8 @@ def register_host(
     settings = get_settings()
     token = _bearer_token(authorization)
     host = db.get(Host, host_id)
+    cpu_allocatable = _resolved_allocatable(req.cpu_total, req.cpu_allocatable)
+    ram_allocatable_mb = _resolved_allocatable(req.ram_total_mb, req.ram_allocatable_mb)
     if host is None:
         if not settings.allow_unknown_host_registration:
             raise HTTPException(status_code=404, detail="unknown host")
@@ -184,9 +192,11 @@ def register_host(
             enabled=True,
             bootstrap_token_hash=hash_token(token),
             cpu_total=req.cpu_total,
-            cpu_free=req.cpu_total,
+            cpu_allocatable=cpu_allocatable,
+            cpu_free=cpu_allocatable,
             ram_total_mb=req.ram_total_mb,
-            ram_free_mb=req.ram_total_mb,
+            ram_allocatable_mb=ram_allocatable_mb,
+            ram_free_mb=ram_allocatable_mb,
         )
         db.add(host)
         db.flush()
@@ -201,9 +211,11 @@ def register_host(
     host.session_token_hash = hash_token(session_token)
     host.session_expires_at = session_expires_at.replace(tzinfo=None)
     host.cpu_total = req.cpu_total
-    host.cpu_free = req.cpu_total
+    host.cpu_allocatable = cpu_allocatable
+    host.cpu_free = cpu_allocatable
     host.ram_total_mb = req.ram_total_mb
-    host.ram_free_mb = req.ram_total_mb
+    host.ram_allocatable_mb = ram_allocatable_mb
+    host.ram_free_mb = ram_allocatable_mb
     host.os_family = req.os_family
     host.os_flavor = req.os_flavor
     host.os_version = req.os_version
@@ -258,7 +270,17 @@ def heartbeat(
             status_code=400, detail="selected_accel not supported by host"
         )
 
-    update_host_heartbeat(db, host, req.cpu_free, req.ram_free_mb, req.io_pressure)
+    update_host_heartbeat(
+        db,
+        host,
+        req.cpu_total,
+        req.ram_total_mb,
+        req.cpu_allocatable,
+        req.ram_allocatable_mb,
+        req.cpu_free,
+        req.ram_free_mb,
+        req.io_pressure,
+    )
     host.os_family = req.os_family or host.os_family
     host.os_flavor = req.os_flavor or host.os_flavor
     host.os_version = req.os_version or host.os_version
