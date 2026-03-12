@@ -56,6 +56,7 @@ sudo systemctl status jenkins-qemu-node-agent
 sudo cp deploy/rc.d/jenkins_qemu_node_agent /usr/local/etc/rc.d/
 sudo chmod +x /usr/local/etc/rc.d/jenkins_qemu_node_agent
 echo 'jenkins_qemu_node_agent_enable="YES"' | sudo tee -a /etc/rc.conf
+echo 'jenkins_qemu_node_agent_logfile="/var/log/jenkins-qemu-node-agent.log"' | sudo tee -a /etc/rc.conf
 sudo service jenkins_qemu_node_agent start
 sudo service jenkins_qemu_node_agent status
 ```
@@ -65,11 +66,17 @@ pidfile `/var/run/jenkins_qemu_node_agent/jenkins_qemu_node_agent.pid`.
 Privilege drop is handled by `daemon -u jenkins-qemu-agent`.
 The script tracks the daemon wrapper PID (`daemon -P`), so `start/stop/status`
 operate consistently.
+By default, node-agent stdout/stderr is appended to
+`/var/log/jenkins-qemu-node-agent.log` via `daemon -o`; override that path with
+`jenkins_qemu_node_agent_logfile` in `/etc/rc.conf`.
+Use `sudo service jenkins_qemu_node_agent reload` after log rotation to reopen
+the logfile.
 
 ## 4) Validation
 
 - Agent health: `curl http://<host>:<NODE_AGENT_BIND_PORT>/healthz`
 - Capacity: `curl http://<host>:<NODE_AGENT_BIND_PORT>/v1/capacity`
+- Service log: `tail -f /var/log/jenkins-qemu-node-agent.log`
 - In control-plane UI (`/ui`), host should appear with matching platform (`family/flavor/arch`) and selected accelerator.
 
 ## 5) Manual base image customization
@@ -141,8 +148,8 @@ Useful flags:
   - Verify heartbeat reaches control-plane and host is `enabled=true`.
   - Verify host free capacity is non-zero in control-plane (`cpu_free`, `ram_free_mb`).
 - VMs fail to launch after lease creation
+  - Check node-agent service log (`/var/log/jenkins-qemu-node-agent.log`) for launch stage details (`cloud-init`, overlay, `qemu` command).
   - Verify base image exists at `NODE_AGENT_BASE_IMAGE_DIR/<base_image_id>.qcow2`.
-  - Check node-agent logs for launch stage details (`cloud-init`, overlay, `qemu` command).
   - Verify `NODE_AGENT_ADVERTISE_ADDR` resolves from control-plane and matches node-agent bind/listen port.
   - For Jenkins bootstrap env, cloud-init writes `/usr/local/etc/jenkins-qemu/jenkins-agent.env` (fallback `/etc/jenkins-agent.env`).
 
@@ -165,7 +172,7 @@ Useful flags:
   - Long-term fix is upgrading Rust/Cargo so the constraint can be removed.
 - Host register returns `422 Unprocessable Entity`
   - Ensure register payload values meet API minimums (for example `ram_total_mb >= 256`).
-  - Check node-agent logs for response body details.
+  - Check node-agent service log (`/var/log/jenkins-qemu-node-agent.log`) for response body details.
 - Host register returns `401` or `404`
   - Verify `NODE_AGENT_HOST_ID` and `NODE_AGENT_BOOTSTRAP_TOKEN` against control-plane records.
   - In dev only, set `ALLOW_UNKNOWN_HOST_REGISTRATION=true` on control-plane.

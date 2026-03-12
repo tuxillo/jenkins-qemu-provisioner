@@ -8,6 +8,10 @@
 name="jenkins_qemu_node_agent"
 rcvar=jenkins_qemu_node_agent_enable
 
+load_rc_config $name
+: ${jenkins_qemu_node_agent_enable:=NO}
+: ${jenkins_qemu_node_agent_logfile:=/var/log/jenkins-qemu-node-agent.log}
+
 command="/usr/sbin/daemon"
 procname="/usr/sbin/daemon"
 app_command="/opt/jenkins-qemu-node-agent/venv/bin/python"
@@ -15,7 +19,10 @@ app_args="-m node_agent.main"
 service_user="jenkins-qemu-agent"
 rundir="/var/run/${name}"
 pidfile="${rundir}/${name}.pid"
-command_args="-P ${pidfile} -u ${service_user} -- ${app_command} ${app_args}"
+logfile="${jenkins_qemu_node_agent_logfile}"
+command_args="-P ${pidfile} -u ${service_user} -f -H -o ${logfile} -- ${app_command} ${app_args}"
+extra_commands="reload"
+sig_reload="HUP"
 
 required_files="/etc/jenkins-qemu-node-agent/env"
 
@@ -24,7 +31,13 @@ stop_postcmd="${name}_poststop"
 
 jenkins_qemu_node_agent_prestart()
 {
+    logdir=$(dirname "${logfile}")
+
     install -d -o "${service_user}" -g "${service_user}" -m 0755 "${rundir}"
+    install -d -m 0755 "${logdir}"
+    if [ ! -f "${logfile}" ]; then
+        install -o root -g "${service_user}" -m 0640 /dev/null "${logfile}"
+    fi
     if [ -f "${pidfile}" ] && [ -z "$(check_pidfile "${pidfile}" "${procname}")" ]; then
         rm -f "${pidfile}"
     fi
@@ -40,8 +53,5 @@ jenkins_qemu_node_agent_poststop()
         rm -f "${pidfile}"
     fi
 }
-
-load_rc_config $name
-: ${jenkins_qemu_node_agent_enable:=NO}
 
 run_rc_command "$1"
