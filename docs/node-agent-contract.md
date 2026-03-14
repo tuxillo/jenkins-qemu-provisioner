@@ -74,6 +74,11 @@ contract externally.
   not provide them yet.
 - Platform-native raw counters must remain internal to node-agent and must not leak into
   the control-plane API contract.
+- Current backends:
+  - Linux derives disk throughput and busy time from `/proc/diskstats` for the filesystem
+    devices backing node-agent storage paths.
+  - DragonFlyBSD derives disk throughput and busy time from `kern.devstat.all`, matching
+    the same underlying `busy_time` accounting used by `systat vmstat`.
 
 ## Service Management
 
