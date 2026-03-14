@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
 
@@ -36,6 +37,7 @@ def test_static_assets_are_served() -> None:
     css = client.get("/static/ui.css")
     assert js.status_code == 200
     assert css.status_code == 200
+    assert "fetch(" not in js.text
 
 
 def test_ui_snapshot_filters_noisy_heartbeat_events() -> None:
@@ -86,6 +88,7 @@ def test_ui_snapshot_escapes_html_like_event_payload() -> None:
 
 
 def test_ui_snapshot_includes_allocatable_host_capacity() -> None:
+    last_seen = datetime.now(UTC).replace(tzinfo=None)
     with SessionLocal() as db:
         db.add(
             Host(
@@ -97,6 +100,8 @@ def test_ui_snapshot_includes_allocatable_host_capacity() -> None:
                 ram_total_mb=32768,
                 ram_allocatable_mb=24576,
                 ram_free_mb=16384,
+                io_pressure=0.42,
+                last_seen=last_seen,
             )
         )
         db.commit()
@@ -113,9 +118,12 @@ def test_ui_snapshot_includes_allocatable_host_capacity() -> None:
 
     snapshot = json.loads(match.group(1))
     host = snapshot["hosts"][0]
+    assert host["availability"] == "AVAILABLE"
     assert host["cpu_total"] == 16
     assert host["cpu_allocatable"] == 12
     assert host["cpu_free"] == 8
     assert host["ram_total_mb"] == 32768
     assert host["ram_allocatable_mb"] == 24576
     assert host["ram_free_mb"] == 16384
+    assert host["io_pressure"] == 0.42
+    assert host["last_seen"] == last_seen.isoformat()

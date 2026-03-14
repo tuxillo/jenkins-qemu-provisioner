@@ -47,6 +47,12 @@
     return Number.isFinite(n) ? n : 0;
   }
 
+  function emptyRow(colspan, message) {
+    return `<tr class="empty-row"><td colspan="${colspan}"><div class="empty-state">${esc(
+      message
+    )}</div></td></tr>`;
+  }
+
   function cpuUse(host) {
     const total = toNumber(host.cpu_allocatable || host.cpu_total);
     const free = toNumber(host.cpu_free);
@@ -82,6 +88,76 @@
 
   function fmtState(state) {
     return `<span class="badge state-${esc(state)}">${esc(state)}</span>`;
+  }
+
+  function ioPressureInfo(value) {
+    const pressure = Math.max(0, Math.min(1, toNumber(value)));
+    if (pressure >= 0.75) {
+      return { label: "Hot", className: "io-hot", value: pressure };
+    }
+    if (pressure >= 0.5) {
+      return { label: "Busy", className: "io-busy", value: pressure };
+    }
+    if (pressure >= 0.25) {
+      return { label: "Elevated", className: "io-elevated", value: pressure };
+    }
+    return { label: "Calm", className: "io-calm", value: pressure };
+  }
+
+  function stackCell(primary, secondary, tertiary, opts = {}) {
+    const primaryClass = opts.primaryClass ? ` ${opts.primaryClass}` : "";
+    const secondaryClass = opts.secondaryClass ? ` ${opts.secondaryClass}` : "";
+    const tertiaryClass = opts.tertiaryClass ? ` ${opts.tertiaryClass}` : "";
+    return `<div class="cell-stack${opts.alignRight ? " align-right" : ""}">
+      <div class="cell-primary${primaryClass}">${esc(primary)}</div>
+      ${secondary ? `<div class="cell-secondary${secondaryClass}">${esc(secondary)}</div>` : ""}
+      ${tertiary ? `<div class="cell-tertiary${tertiaryClass}">${esc(tertiary)}</div>` : ""}
+    </div>`;
+  }
+
+  function hostIdentityCell(host) {
+    return stackCell(host.host_id || "-", host.addr || "-", "", {
+      primaryClass: "cell-mono",
+      secondaryClass: "cell-mono",
+    });
+  }
+
+  function hostPlatformCell(host) {
+    const family = host.os_family || "-";
+    const flavor = host.os_flavor || "-";
+    return stackCell(`${family}/${flavor}`, host.cpu_arch || "-", "");
+  }
+
+  function hostCapacityCell(free, allocatable, physical, usedPercent, unitLabel) {
+    const freeValue = toNumber(free);
+    const allocValue = toNumber(allocatable || physical);
+    const physicalValue = toNumber(physical);
+    const suffix = unitLabel ? ` ${unitLabel}` : "";
+    return `<div class="cell-stack align-right metric-cell">
+      <div class="cell-primary cell-mono">${esc(`${usedPercent}% used`)}</div>
+      <div class="util-bar" aria-hidden="true"><span class="util-fill" style="width:${usedPercent}%"></span></div>
+      <div class="cell-secondary cell-mono">${esc(`free ${freeValue}/${allocValue}${suffix} alloc`)}</div>
+      <div class="cell-tertiary">${esc(`phys ${physicalValue}${suffix}`)}</div>
+    </div>`;
+  }
+
+  function ioCell(value) {
+    const info = ioPressureInfo(value);
+    const percent = Math.round(info.value * 100);
+    return `<div class="cell-stack align-right io-cell">
+      <div class="io-topline"><span class="badge io-chip ${esc(info.className)}">${esc(info.label)}</span><span class="cell-primary cell-mono">${esc(info.value.toFixed(2))}</span></div>
+      <div class="io-meter" aria-hidden="true"><span class="io-fill ${esc(info.className)}" style="width:${percent}%"></span></div>
+      <div class="cell-tertiary">${esc(`${percent}% pressure`)}</div>
+    </div>`;
+  }
+
+  function timestampCell(isoString) {
+    const age = ageText(isoString);
+    const timestamp = isoString || "-";
+    return stackCell(age, timestamp, "", {
+      primaryClass: "cell-mono",
+      secondaryClass: "cell-mono",
+    });
   }
 
   function clip(value, cls = "") {
@@ -181,10 +257,11 @@
       <section class="panels">
         <article class="panel" id="hostsPanel">
           <h2>Hosts <span class="muted" id="hostsCount"></span></h2>
+          <p class="panel-note">Capacity reflects allocatable VM budget; physical totals stay visible for context.</p>
           <div class="table-wrap">
             <table>
               <thead>
-                <tr><th>Host</th><th>Status</th><th>Platform</th><th>Addr</th><th>CPU</th><th>RAM</th><th>IO</th><th>Last Seen</th></tr>
+                <tr><th>Host</th><th>Status</th><th>Platform</th><th class="col-numeric">CPU</th><th class="col-numeric">RAM</th><th class="col-numeric">IO</th><th>Last Seen</th></tr>
               </thead>
               <tbody id="hostsBody"></tbody>
             </table>
@@ -268,20 +345,21 @@
 
   function hostRows(filteredHosts) {
     if (!filteredHosts.length) {
-      return "<tr><td colspan='8' class='muted'>No host rows match current filters.</td></tr>";
+      return emptyRow(7, "No host rows match current filters.");
     }
     return filteredHosts
       .map((h) => {
         const availability = h.availability || (h.enabled ? "AVAILABLE" : "DISABLED");
+        const cpuAllocatable = h.cpu_allocatable || h.cpu_total;
+        const ramAllocatable = h.ram_allocatable_mb || h.ram_total_mb;
         return `<tr>
-          <td>${clip(h.host_id)}</td>
+          <td>${hostIdentityCell(h)}</td>
           <td><span class="badge host-${availability.toLowerCase()}">${esc(availability)}</span></td>
-          <td>${clip(`${h.os_family || "-"}/${h.os_flavor || "-"}/${h.cpu_arch || "-"}`)}</td>
-          <td>${clip(h.addr)}</td>
-          <td>${clip(`free ${h.cpu_free}/${h.cpu_allocatable || h.cpu_total} alloc (${cpuUse(h)}%), phys ${h.cpu_total}`)}</td>
-          <td>${clip(`free ${h.ram_free_mb}/${h.ram_allocatable_mb || h.ram_total_mb} MB alloc (${ramUse(h)}%), phys ${h.ram_total_mb} MB`)}</td>
-          <td>${clip(Number(h.io_pressure || 0).toFixed(2))}</td>
-          <td>${clip(`${h.last_seen || "-"} (${ageText(h.last_seen)})`)}</td>
+          <td>${hostPlatformCell(h)}</td>
+          <td class="col-numeric">${hostCapacityCell(h.cpu_free, cpuAllocatable, h.cpu_total, cpuUse(h), "")}</td>
+          <td class="col-numeric">${hostCapacityCell(h.ram_free_mb, ramAllocatable, h.ram_total_mb, ramUse(h), "MB")}</td>
+          <td class="col-numeric">${ioCell(h.io_pressure)}</td>
+          <td>${timestampCell(h.last_seen)}</td>
         </tr>`;
       })
       .join("");
@@ -289,7 +367,7 @@
 
   function leaseRows(filteredLeases) {
     if (!filteredLeases.length) {
-      return "<tr><td colspan='9' class='muted'>No lease rows match current filters.</td></tr>";
+      return emptyRow(9, "No lease rows match current filters.");
     }
     return filteredLeases
       .map((l) => {
@@ -304,7 +382,7 @@
           <td>${clip(l.vm_id)}</td>
           <td>${clip(l.jenkins_node)}</td>
           <td>${build}</td>
-          <td>${clip(ageText(l.updated_at))}</td>
+          <td>${timestampCell(l.updated_at)}</td>
           <td>${clip(l.last_error)}</td>
         </tr>`;
       })
@@ -313,7 +391,7 @@
 
   function eventRows(filteredEvents) {
     if (!filteredEvents.length) {
-      return "<tr><td colspan='7' class='muted'>No event rows match current filters.</td></tr>";
+      return emptyRow(7, "No event rows match current filters.");
     }
     return filteredEvents
       .map((e) => {
@@ -334,7 +412,7 @@
         const detailSummary = String(details);
         return `<tr>
           <td>${clip(e.id)}</td>
-          <td>${clip(`${e.timestamp || "-"} (${ageText(e.timestamp)})`)}</td>
+          <td>${timestampCell(e.timestamp)}</td>
           <td>${clip(e.event_type)}</td>
           <td>${clip(host)}</td>
           <td>${clip(e.lease_id)}</td>
@@ -347,10 +425,10 @@
 
   function metricRows(metricEntries) {
     if (!metricEntries.length) {
-      return "<tr><td colspan='2' class='muted'>No metrics have been recorded yet.</td></tr>";
+      return emptyRow(2, "No metrics have been recorded yet.");
     }
     return metricEntries
-      .map(([k, v]) => `<tr><td>${clip(k)}</td><td>${clip(v)}</td></tr>`)
+      .map(([k, v]) => `<tr><td>${clip(k)}</td><td class="col-numeric">${clip(v, "cell-mono")}</td></tr>`)
       .join("");
   }
 
