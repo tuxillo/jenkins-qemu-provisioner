@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+This project uses **bd** (beads) for issue tracking. Run `bd prime` to recover session context.
 
 ## Quick Reference
 
@@ -9,7 +9,7 @@ bd ready              # Find available work
 bd show <id>          # View issue details
 bd update <id> --status in_progress  # Claim work
 bd close <id>         # Complete work
-bd sync               # Sync with git
+bd doctor             # Diagnose local beads problems
 ```
 
 ## Landing the Plane (Session Completion)
@@ -24,7 +24,6 @@ bd sync               # Sync with git
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```
@@ -106,13 +105,12 @@ bd close bd-42 --reason "Completed" --json
    - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
 5. **Complete**: `bd close <id> --reason "Done"`
 
-### Auto-Sync
+### Dolt Notes
 
-bd automatically syncs via Dolt:
-
-- Each write auto-commits to Dolt history
-- Use `bd dolt push`/`bd dolt pull` for remote sync
-- No manual export/import needed!
+- Beads stores issues in a local Dolt-backed database in this repository.
+- `bd` writes auto-commit into local Dolt history.
+- This repository currently has no Beads Dolt remote configured, so do not use `bd sync`.
+- Use `bd dolt pull` / `bd dolt push` only if a Beads Dolt remote is configured later.
 
 ### Important Rules
 
@@ -138,7 +136,6 @@ For more details, see README.md and docs/QUICKSTART.md.
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```
