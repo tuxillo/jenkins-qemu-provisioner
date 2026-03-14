@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
@@ -34,6 +35,14 @@ class Settings(BaseSettings):
 
     node_agent_url: str = Field(default="http://localhost:9000")
     node_agent_auth_token: str | None = Field(default=None)
+
+    label_policies_file: str = Field(
+        default=str(Path(__file__).resolve().parent / "label_policies.json")
+    )
+    image_catalog_file: str = Field(
+        default=str(Path(__file__).resolve().parent / "image_catalog.json")
+    )
+    guest_image_compat_mode: bool = Field(default=False)
 
     disable_background_loops: bool = Field(default=False)
 

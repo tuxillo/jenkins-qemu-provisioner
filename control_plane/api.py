@@ -53,6 +53,23 @@ def _resolved_allocatable(total: int, allocatable: int | None) -> int:
     return min(allocatable or total, total)
 
 
+def _available_images_json(available_images: list, base_image_ids: list[str]) -> str:
+    if available_images:
+        payload = [image.model_dump() for image in available_images]
+    else:
+        payload = [
+            {
+                "guest_image": image_id,
+                "base_image_id": image_id,
+                "source_digest": None,
+                "cpu_arch": None,
+                "state": "READY",
+            }
+            for image_id in base_image_ids
+        ]
+    return json.dumps(payload, sort_keys=True)
+
+
 def _host_availability(host: Host, now: datetime, stale_timeout_sec: int) -> str:
     if not host.enabled:
         return "DISABLED"
@@ -116,6 +133,8 @@ def _build_snapshot(db: Session) -> dict:
                 "jenkins_node": l.jenkins_node,
                 "state": l.state,
                 "host_id": l.host_id,
+                "guest_image": l.guest_image,
+                "base_image_id": l.base_image_id,
                 "created_at": _to_iso(l.created_at),
                 "updated_at": _to_iso(l.updated_at),
                 "connect_deadline": _to_iso(l.connect_deadline),
@@ -224,6 +243,9 @@ def register_host(
     host.qemu_binary = req.qemu_binary
     host.supported_accels = json.dumps(req.supported_accels)
     host.selected_accel = req.selected_accel
+    host.available_images_json = _available_images_json(
+        req.available_images, req.base_image_ids
+    )
     host.last_seen = now_utc()
     db.add(host)
     write_event(
@@ -289,6 +311,8 @@ def heartbeat(
     host.selected_accel = req.selected_accel or host.selected_accel
     if req.supported_accels:
         host.supported_accels = json.dumps(req.supported_accels)
+    if req.available_images:
+        host.available_images_json = _available_images_json(req.available_images, [])
     write_event(
         db, "host.heartbeat", {"host_id": host_id, "running_vm_ids": req.running_vm_ids}
     )
@@ -362,6 +386,8 @@ def get_leases(
             host_id=l.host_id,
             connect_deadline=l.connect_deadline,
             ttl_deadline=l.ttl_deadline,
+            guest_image=l.guest_image,
+            base_image_id=l.base_image_id,
             bound_build_url=l.bound_build_url,
             last_error=l.last_error,
         )

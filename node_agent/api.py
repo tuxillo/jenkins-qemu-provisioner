@@ -1,11 +1,12 @@
 import json
 import logging
-from pathlib import Path
 from datetime import UTC, datetime
+from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
+from node_agent.base_images import ensure_base_image
 from node_agent.config import get_agent_settings
 from node_agent.heartbeat import current_capacity_snapshot
 from node_agent.host_stats import get_host_stats_service
@@ -123,15 +124,25 @@ def ensure_vm(vm_id: str, req: VMEnsureRequest) -> VMStateResponse:
             serial_log_path=existing.get("serial_log_path"),
         )
 
-    base_image_path = str(Path(settings.base_image_dir) / f"{req.base_image_id}.qcow2")
-    if not settings.dry_run and not Path(base_image_path).exists():
+    try:
+        base_image_path = ensure_base_image(settings, req.base_image)
+    except FileNotFoundError as exc:
         _raise_launch_error(
             settings=settings,
             vm_id=vm_id,
             lease_id=lease_id,
             stage="base_image",
             status_code=400,
-            reason=f"base image not found: {base_image_path}",
+            reason=str(exc),
+        )
+    except Exception as exc:  # noqa: BLE001
+        _raise_launch_error(
+            settings=settings,
+            vm_id=vm_id,
+            lease_id=lease_id,
+            stage="base_image",
+            status_code=500,
+            reason=f"base image prepare failed: {exc}",
         )
 
     runtime_paths = None

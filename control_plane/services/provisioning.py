@@ -8,6 +8,7 @@ from control_plane.clients.jenkins import JenkinsClient
 from control_plane.clients.node_agent import NodeAgentClient
 from control_plane.config import get_settings
 from control_plane.db import session_scope
+from control_plane.guest_images import ResolvedImageSelection, resolve_image_selection
 from control_plane.models import Lease, LeaseState
 from control_plane.repositories import now_utc, write_event
 
@@ -211,16 +212,19 @@ def provision_one(
     host_id: str,
     jenkins: JenkinsClient,
     node_agent: NodeAgentClient,
-    base_image_id: str = "default",
+    image_selection: ResolvedImageSelection | None = None,
     lease_id: str | None = None,
 ) -> str:
     settings = get_settings()
+    resolved_image = image_selection or resolve_image_selection(label)
+    if resolved_image is None:
+        raise ValueError(f"no guest image policy configured for label: {label}")
     lease = create_lease(label)
     if lease_id:
         lease.lease_id = lease_id
         lease.vm_id = f"vm-{lease_id[:12]}"
         lease.jenkins_node = f"ephemeral-{lease_id[:12]}"
-    profile = NODE_PROFILES[choose_profile(label)]
+    profile = NODE_PROFILES[resolved_image.profile]
     node_label = normalize_node_label(label)
     with session_scope() as session:
         existing = session.get(Lease, lease.lease_id)
@@ -234,12 +238,19 @@ def provision_one(
             return existing.lease_id
 
         lease.host_id = host_id
+        lease.guest_image = resolved_image.guest_image
+        lease.base_image_id = resolved_image.base_image_id
         persisted_lease = session.merge(lease)
         session.flush()
         write_event(
             session,
             "lease.created",
-            {"label": label, "host_id": host_id},
+            {
+                "label": label,
+                "host_id": host_id,
+                "guest_image": resolved_image.guest_image,
+                "base_image_id": resolved_image.base_image_id,
+            },
             persisted_lease.lease_id,
         )
 
@@ -261,7 +272,15 @@ def provision_one(
         payload = {
             "vm_id": lease.vm_id,
             "label": label,
-            "base_image_id": base_image_id,
+            "guest_image": resolved_image.guest_image,
+            "base_image": {
+                "guest_image": resolved_image.guest_image,
+                "base_image_id": resolved_image.base_image_id,
+                "source_kind": resolved_image.source_kind,
+                "source_url": resolved_image.source_url,
+                "source_digest": resolved_image.source_digest,
+                "format": resolved_image.format,
+            },
             "overlay_path": f"/var/lib/jenkins-qemu/{lease.vm_id}.qcow2",
             "vcpu": profile["vcpu"],
             "ram_mb": profile["ram_mb"],
@@ -281,9 +300,18 @@ def provision_one(
             db_lease = session.get(Lease, lease.lease_id)
             if db_lease:
                 db_lease.state = LeaseState.BOOTING.value
+                db_lease.guest_image = resolved_image.guest_image
+                db_lease.base_image_id = resolved_image.base_image_id
                 db_lease.updated_at = now_utc()
                 write_event(
-                    session, "lease.booting", {"host_id": host_id}, lease.lease_id
+                    session,
+                    "lease.booting",
+                    {
+                        "host_id": host_id,
+                        "guest_image": resolved_image.guest_image,
+                        "base_image_id": resolved_image.base_image_id,
+                    },
+                    lease.lease_id,
                 )
         return lease.lease_id
     except Exception as exc:  # noqa: BLE001
@@ -291,6 +319,8 @@ def provision_one(
             db_lease = session.get(Lease, lease.lease_id)
             if db_lease:
                 db_lease.state = LeaseState.FAILED.value
+                db_lease.guest_image = resolved_image.guest_image
+                db_lease.base_image_id = resolved_image.base_image_id
                 db_lease.last_error = str(exc)
                 db_lease.updated_at = now_utc()
                 write_event(

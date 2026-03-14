@@ -53,6 +53,8 @@ class Lease(Base):
     connect_deadline: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     ttl_deadline: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     disconnected_at: Mapped[datetime | None] = mapped_column(DateTime)
+    guest_image: Mapped[str | None] = mapped_column(String(128))
+    base_image_id: Mapped[str | None] = mapped_column(String(128))
     bound_build_url: Mapped[str | None] = mapped_column(Text)
     last_heartbeat: Mapped[datetime | None] = mapped_column(DateTime)
     last_error: Mapped[str | None] = mapped_column(Text)
@@ -75,6 +77,7 @@ class Host(Base):
     qemu_binary: Mapped[str | None] = mapped_column(String(256))
     supported_accels: Mapped[str | None] = mapped_column(Text)
     selected_accel: Mapped[str | None] = mapped_column(String(32))
+    available_images_json: Mapped[str | None] = mapped_column(Text)
 
     cpu_total: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cpu_allocatable: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

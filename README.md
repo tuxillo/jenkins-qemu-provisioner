@@ -43,6 +43,13 @@ UI note:
 - It does not query control-plane APIs from the browser.
 - Host capacity in the UI distinguishes physical totals from allocatable VM budgets.
 
+Guest image policy note:
+- Control-plane resolves Jenkins labels through exact-label JSON policy in `control_plane/label_policies.json`.
+- Policy keys must match the queued Jenkins label exactly, including full label expressions when Jenkins submits one.
+- The image catalog in `control_plane/image_catalog.json` defines the desired artifact, source kind (`manual_local` or `remote_cache`), and cache policy (`require_warm` or `prefer_warm`).
+- Node-agents advertise locally cached images, and the scheduler prefers warm caches before falling back to permitted cold fetches.
+- `GUEST_IMAGE_COMPAT_MODE=true` temporarily restores legacy unmapped-label fallback during rollout, but the intended steady state is explicit exact-label policy for every schedulable label.
+
 Local E2E note:
 - `fake-node-agent` is disabled by default; enable with profile: `docker compose --profile fake-agent up -d`.
 - Control-plane loops are enabled by default and can point to fake node-agent via `CP_NODE_AGENT_URL`.

@@ -1,3 +1,4 @@
+import json
 from functools import lru_cache
 
 from pydantic import Field
@@ -22,6 +23,9 @@ class FakeAgentSettings(BaseSettings):
     cpu_allocatable: int | None = Field(default=None, ge=1)
     ram_allocatable_mb: int | None = Field(default=None, ge=256)
     io_pressure: float = Field(default=0.0, ge=0.0)
+    available_images_json: str = Field(
+        default='[{"guest_image":"default","base_image_id":"default","source_digest":null,"cpu_arch":"x86_64","state":"READY"}]'
+    )
 
     control_plane_url: str = Field(default="http://control-plane:8000")
     bootstrap_token: str = Field(default="fake-bootstrap-token")
@@ -39,6 +43,14 @@ class FakeAgentSettings(BaseSettings):
     @property
     def effective_ram_allocatable_mb(self) -> int:
         return min(self.ram_allocatable_mb or self.ram_total_mb, self.ram_total_mb)
+
+    @property
+    def available_images(self) -> list[dict]:
+        try:
+            data = json.loads(self.available_images_json)
+        except json.JSONDecodeError:
+            return []
+        return data if isinstance(data, list) else []
 
 
 @lru_cache(maxsize=1)

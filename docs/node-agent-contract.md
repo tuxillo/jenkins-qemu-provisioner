@@ -12,6 +12,8 @@ Host registration and heartbeat payloads include:
 - `qemu_binary`: absolute qemu binary path used by agent
 - `supported_accels`: list of supported accelerators (for example `kvm`, `nvmm`, `tcg`)
 - `selected_accel`: accelerator selected in agent config and used for VM launches
+- `available_images`: locally cached guest image inventory (`guest_image`, `base_image_id`, optional `source_digest`, `cpu_arch`, `state=READY`)
+- `base_image_ids`: legacy compatibility field only; control-plane should prefer `available_images`
 - `cpu_total`, `ram_total_mb`: physical host totals for visibility
 - `cpu_allocatable`, `ram_allocatable_mb`: schedulable VM pool budget
 - `cpu_free`, `ram_free_mb`: current free capacity inside the allocatable VM pool
@@ -58,13 +60,32 @@ Optional fields:
 - `GET /v1/capacity`: report physical totals, allocatable totals, free schedulable CPU/RAM, and IO pressure
 - `GET /healthz`: agent liveness
 
+### Base Image Request Contract
+
+`PUT /v1/vms/{vm_id}` now carries explicit guest-image intent and exact base-image
+artifact selection.
+
+- Request fields include:
+  - `guest_image`: logical guest image name resolved by control-plane label policy
+  - `base_image`: object containing:
+    - `guest_image`
+    - `base_image_id`
+    - `source_kind`: `manual_local` or `remote_cache`
+    - `source_url` (required for `remote_cache`)
+    - `source_digest` (required for `remote_cache`)
+    - `format` (currently `qcow2`)
+- Node-agent behavior:
+  - `manual_local`: artifact must already exist under `NODE_AGENT_BASE_IMAGE_DIR/<base_image_id>.qcow2`
+  - `remote_cache`: node-agent may fetch, verify digest, and cache the artifact locally before boot
+  - cached metadata is stored alongside the image as `NODE_AGENT_BASE_IMAGE_DIR/<base_image_id>.json`
+
 ### Host Stats Contract
 
 Node-agent host stats collection is platform-specific internally, but emits a generic
 contract externally.
 
 - Heartbeat continues to send only generic scheduler-facing metrics; today that means
-  `io_pressure` plus the allocatable/free capacity fields above.
+  `io_pressure`, allocatable/free capacity fields, and cached image inventory.
 - `GET /v1/capacity` may additionally expose optional host-diagnostic fields:
   - `stats_collected_at`: timestamp of the last cached stats sample
   - `disk_busy_frac`: normalized `0.0..1.0` busy fraction for the VM-storage device set

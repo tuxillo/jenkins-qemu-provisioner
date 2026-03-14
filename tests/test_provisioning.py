@@ -58,8 +58,12 @@ def test_provision_success_transitions_to_booting():
     db.close()
     assert lease is not None
     assert lease.state == LeaseState.BOOTING.value
+    assert lease.guest_image == "default"
+    assert lease.base_image_id == "default"
     assert node_agent.calls
     payload = node_agent.calls[0][1]
+    assert payload["guest_image"] == "default"
+    assert payload["base_image"]["base_image_id"] == "default"
     user_data = base64.b64decode(payload["cloud_init_user_data_b64"]).decode("utf-8")
     assert "start-jenkins-inbound-agent.sh" in user_data
     assert "JENKINS_JNLP_SECRET='secret'" in user_data

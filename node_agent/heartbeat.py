@@ -3,9 +3,11 @@ import os
 import threading
 import time
 from datetime import UTC, datetime, timedelta
+from typing import TypedDict
 
 import httpx
 
+from node_agent.base_images import available_images
 from node_agent.config import get_agent_settings
 from node_agent.host_stats import get_host_stats_service
 from node_agent.state import list_vms
@@ -13,6 +15,16 @@ from node_agent.state import list_vms
 
 logger = logging.getLogger(__name__)
 ACTIVE_VM_STATES = {"RUNNING", "BOOTING", "PROVISIONING"}
+
+
+class CapacitySnapshot(TypedDict):
+    cpu_total: int
+    ram_total_mb: int
+    cpu_allocatable: int
+    ram_allocatable_mb: int
+    cpu_free: int
+    ram_free_mb: int
+    running_vm_ids: list[str]
 
 
 class ControlPlaneSession:
@@ -58,7 +70,7 @@ def _allocatable_capacity(
     return cpu_allocatable, ram_allocatable_mb
 
 
-def current_capacity_snapshot() -> dict[str, int | list[str]]:
+def current_capacity_snapshot() -> CapacitySnapshot:
     settings = get_agent_settings()
     cpu_total, ram_total_mb = _physical_capacity()
     cpu_allocatable, ram_allocatable_mb = _allocatable_capacity(
@@ -89,6 +101,7 @@ def current_capacity_snapshot() -> dict[str, int | list[str]]:
 def register_host(client: httpx.Client, state: ControlPlaneSession) -> None:
     settings = get_agent_settings()
     capacity = current_capacity_snapshot()
+    image_inventory = available_images(settings)
     advertised_addr = (
         settings.advertise_addr or f"{settings.bind_host}:{settings.bind_port}"
     )
@@ -99,7 +112,8 @@ def register_host(client: httpx.Client, state: ControlPlaneSession) -> None:
         "ram_total_mb": capacity["ram_total_mb"],
         "cpu_allocatable": capacity["cpu_allocatable"],
         "ram_allocatable_mb": capacity["ram_allocatable_mb"],
-        "base_image_ids": [],
+        "base_image_ids": [image.base_image_id for image in image_inventory],
+        "available_images": [image.model_dump() for image in image_inventory],
         "addr": advertised_addr,
         "os_family": settings.os_family,
         "os_flavor": settings.os_flavor,
@@ -130,6 +144,7 @@ def send_heartbeat(client: httpx.Client, state: ControlPlaneSession) -> None:
 
     capacity = current_capacity_snapshot()
     host_stats = get_host_stats_service().latest()
+    image_inventory = available_images(settings)
     payload = {
         "cpu_total": capacity["cpu_total"],
         "ram_total_mb": capacity["ram_total_mb"],
@@ -139,6 +154,7 @@ def send_heartbeat(client: httpx.Client, state: ControlPlaneSession) -> None:
         "ram_free_mb": capacity["ram_free_mb"],
         "io_pressure": host_stats.io_pressure,
         "running_vm_ids": capacity["running_vm_ids"],
+        "available_images": [image.model_dump() for image in image_inventory],
         "os_family": settings.os_family,
         "os_flavor": settings.os_flavor,
         "os_version": settings.os_version,
@@ -167,8 +183,14 @@ def _reserved_capacity(rows: list[dict]) -> tuple[int, int]:
 
 
 def _coerce_nonnegative_int(value: object) -> int:
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, (str, int, float)):
+        candidate: str | int | float = value
+    else:
+        return 0
     try:
-        coerced = int(value)  # type: ignore[arg-type]
+        coerced = int(candidate)
     except (TypeError, ValueError):
         return 0
     return coerced if coerced > 0 else 0

@@ -26,6 +26,9 @@ def setup_function() -> None:
         os.remove(db_path)
     get_agent_settings.cache_clear()
     reset_host_stats_service()
+    base_dir = Path(os.environ["NODE_AGENT_BASE_IMAGE_DIR"])
+    base_dir.mkdir(parents=True, exist_ok=True)
+    (base_dir / "base.qcow2").write_bytes(b"fake-base")
     initialize_state()
 
 
@@ -33,7 +36,15 @@ def _payload(vm_id: str) -> dict:
     return {
         "vm_id": vm_id,
         "label": "linux-kvm",
-        "base_image_id": "base",
+        "guest_image": "default",
+        "base_image": {
+            "guest_image": "default",
+            "base_image_id": "base",
+            "source_kind": "manual_local",
+            "source_url": None,
+            "source_digest": None,
+            "format": "qcow2",
+        },
         "overlay_path": f"/tmp/node-agent-overlays/{vm_id}.qcow2",
         "vcpu": 2,
         "ram_mb": 2048,

@@ -48,7 +48,27 @@ class _FakeHostStatsService:
         return SimpleNamespace(io_pressure=self._io_pressure)
 
 
+def _fake_available_images(_settings):
+    return [
+        SimpleNamespace(
+            guest_image="default",
+            base_image_id="default",
+            source_digest=None,
+            cpu_arch="x86_64",
+            state="READY",
+            model_dump=lambda: {
+                "guest_image": "default",
+                "base_image_id": "default",
+                "source_digest": None,
+                "cpu_arch": "x86_64",
+                "state": "READY",
+            },
+        )
+    ]
+
+
 def test_send_heartbeat_reports_free_capacity_after_vm_reservations(monkeypatch):
+    monkeypatch.setattr("node_agent.heartbeat.available_images", _fake_available_images)
     monkeypatch.setattr(
         "node_agent.heartbeat.get_host_stats_service",
         lambda: _FakeHostStatsService(0.25),
@@ -93,9 +113,11 @@ def test_send_heartbeat_reports_free_capacity_after_vm_reservations(monkeypatch)
     assert client.last_json["ram_free_mb"] == 13312
     assert client.last_json["io_pressure"] == 0.25
     assert client.last_json["running_vm_ids"] == ["vm1", "vm2"]
+    assert client.last_json["available_images"][0]["base_image_id"] == "default"
 
 
 def test_send_heartbeat_clamps_negative_free_capacity(monkeypatch):
+    monkeypatch.setattr("node_agent.heartbeat.available_images", _fake_available_images)
     monkeypatch.setattr(
         "node_agent.heartbeat.get_host_stats_service",
         lambda: _FakeHostStatsService(0.0),
@@ -139,6 +161,7 @@ def test_send_heartbeat_clamps_negative_free_capacity(monkeypatch):
 
 
 def test_send_heartbeat_uses_allocatable_capacity_when_configured(monkeypatch):
+    monkeypatch.setattr("node_agent.heartbeat.available_images", _fake_available_images)
     monkeypatch.setattr(
         "node_agent.heartbeat.get_host_stats_service",
         lambda: _FakeHostStatsService(0.1),
@@ -188,6 +211,7 @@ def test_send_heartbeat_uses_allocatable_capacity_when_configured(monkeypatch):
 def test_register_host_falls_back_to_physical_totals_when_allocatable_unset(
     monkeypatch,
 ):
+    monkeypatch.setattr("node_agent.heartbeat.available_images", _fake_available_images)
     monkeypatch.setattr(
         "node_agent.heartbeat.get_agent_settings",
         lambda: SimpleNamespace(
@@ -220,3 +244,4 @@ def test_register_host_falls_back_to_physical_totals_when_allocatable_unset(
     assert client.last_json["cpu_allocatable"] == 8
     assert client.last_json["ram_total_mb"] == 16384
     assert client.last_json["ram_allocatable_mb"] == 16384
+    assert client.last_json["available_images"][0]["guest_image"] == "default"

@@ -1,12 +1,40 @@
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
+
+
+class AvailableImageResponse(BaseModel):
+    guest_image: str
+    base_image_id: str
+    source_digest: str | None = None
+    cpu_arch: str | None = None
+    state: str = "READY"
+
+
+class BaseImageRequest(BaseModel):
+    guest_image: str
+    base_image_id: str
+    source_kind: Literal["manual_local", "remote_cache"]
+    source_url: str | None = None
+    source_digest: str | None = None
+    format: str = Field(default="qcow2")
+
+    @model_validator(mode="after")
+    def validate_source_fields(self) -> "BaseImageRequest":
+        if self.source_kind == "remote_cache":
+            if not self.source_url:
+                raise ValueError("remote_cache images require source_url")
+            if not self.source_digest:
+                raise ValueError("remote_cache images require source_digest")
+        return self
 
 
 class VMEnsureRequest(BaseModel):
     vm_id: str
     label: str
-    base_image_id: str
+    guest_image: str
+    base_image: BaseImageRequest
     overlay_path: str
     vcpu: int
     ram_mb: int

@@ -44,6 +44,26 @@ network interfaces are provisioned.
 listens on. `NODE_AGENT_ADVERTISE_ADDR` is the host:port the control-plane calls;
 it should usually use the same port and a routable address for that host.
 
+Base image cache model:
+
+- Control-plane resolves Jenkins labels through exact-label policy and sends node-agent
+  an explicit `guest_image` plus `base_image` selection.
+- Node-agent treats `NODE_AGENT_BASE_IMAGE_DIR` as a local cache of immutable qcow2
+  artifacts.
+- Cached artifacts live at `NODE_AGENT_BASE_IMAGE_DIR/<base_image_id>.qcow2`.
+- Cached metadata lives at `NODE_AGENT_BASE_IMAGE_DIR/<base_image_id>.json`.
+- Hosts advertise cached images back to control-plane as `available_images`, and the
+  scheduler prefers warm caches before falling back to permitted cold fetch.
+
+Source modes:
+
+- `manual_local`
+  - operator places the qcow2 in the base image dir ahead of time
+  - node-agent fails the launch if the artifact is missing
+- `remote_cache`
+  - node-agent downloads the artifact on demand, verifies digest, and caches it locally
+  - first boot on a cold host may take longer
+
 Capacity model:
 
 - `cpu_total` / `ram_total_mb` remain the physical host totals reported for visibility.
@@ -110,6 +130,21 @@ Boot the base image directly when you need to install packages or tune the guest
 Then customize from console (or over SSH if enabled in the image), shut down the VM,
 and keep using the same qcow2 as your base image.
 
+If you are using `manual_local` image catalog entries, also write a matching metadata
+sidecar so the host advertises the cache entry accurately. Minimal example:
+
+```json
+{
+  "guest_image": "default",
+  "base_image_id": "default",
+  "source_kind": "manual_local",
+  "source_url": null,
+  "source_digest": null,
+  "format": "qcow2",
+  "cpu_arch": "x86_64"
+}
+```
+
 Minimum guest requirements for automatic Jenkins inbound bootstrap:
 
 - `cloud-init` enabled in the base image
@@ -171,6 +206,7 @@ Useful flags:
 - VMs fail to launch after lease creation
   - Check node-agent service log (`/var/log/jenkins-qemu-node-agent.log`) for launch stage details (`cloud-init`, overlay, `qemu` command).
   - Verify base image exists at `NODE_AGENT_BASE_IMAGE_DIR/<base_image_id>.qcow2`.
+  - For `remote_cache` images, verify the configured source URL is reachable and the catalog digest matches the downloaded artifact.
   - Verify `NODE_AGENT_ADVERTISE_ADDR` resolves from control-plane and matches node-agent bind/listen port.
   - For Jenkins bootstrap env, cloud-init writes `/usr/local/etc/jenkins-qemu/jenkins-agent.env` (fallback `/etc/jenkins-agent.env`).
 

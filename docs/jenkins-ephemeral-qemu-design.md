@@ -182,6 +182,10 @@ loop every 5s:
   - Version base images using `base_image_id`.
   - Launch new jobs only on current base ID.
   - Drain and retire old base only after active overlays reach zero.
+  - Resolve Jenkins labels through exact-label guest-image policy; never infer guest OS from host OS.
+  - Separate logical `guest_image` from exact boot artifact `base_image_id`.
+  - Support both `manual_local` and `remote_cache` image sources.
+  - Prefer warm cached artifacts on hosts, but allow cold fetch only for catalog entries marked `prefer_warm`.
 
 - Performance guardrails
   - Prefer fast local SSD or NVMe for overlays.
@@ -201,13 +205,13 @@ loop every 5s:
 - `POST /v1/hosts/{host_id}/register`
   - Purpose: authenticate and register host node-agent with control-plane.
   - Auth: bootstrap token (`Authorization: Bearer <bootstrap_token>`).
-  - Request fields: `agent_version`, `qemu_version`, `cpu_total`, `ram_total_mb`, `base_image_ids`, `addr`
+  - Request fields: `agent_version`, `qemu_version`, `cpu_total`, `ram_total_mb`, `available_images`, `addr`
   - Response fields: `host_id`, `enabled`, `session_token`, `session_expires_at`, `heartbeat_interval_sec`
 
 - `PUT /v1/vms/{vm_id}`
   - Purpose: ensure VM exists and is running for a lease.
   - Request fields:
-    - `vm_id`, `label`, `base_image_id`, `overlay_path`
+    - `vm_id`, `label`, `guest_image`, `base_image`, `overlay_path`
     - `vcpu`, `ram_mb`, `disk_gb`
     - `lease_expires_at`, `connect_deadline`
     - `jenkins_url`, `jenkins_node_name`, `jnlp_secret`
@@ -252,10 +256,11 @@ loop every 5s:
   - `large`: `8 vCPU`, `16 GiB RAM`, `120 GiB overlay`
 
 - Placement limits
-  - Each label maps to one profile.
+  - Each label maps to one explicit policy entry (`guest_image`, `profile`, optional accel/arch constraints).
   - Host is eligible only if free CPU and RAM can satisfy one new VM profile.
   - Per-host hard cap: maximum concurrent VMs configured per host.
   - Per-label hard cap and global hard cap remain enforced by scaler.
+  - Scheduler classifies hosts as `warm_ready`, `cold_fetch_ok`, or `ineligible` based on advertised cached image inventory and catalog cache policy.
 
 ## Control-Plane Implementation (FastAPI + SQLite)
 
@@ -277,10 +282,12 @@ loop every 5s:
 - Minimal schema
   - `leases`
     - `lease_id` (pk), `vm_id` (unique), `label`, `jenkins_node` (unique), `state`, `host_id`
+    - `guest_image`, `base_image_id`
     - `created_at`, `updated_at`, `connect_deadline`, `ttl_deadline`, `last_heartbeat`, `last_error`
   - `hosts`
     - `host_id` (pk), `enabled`, `bootstrap_token_hash`, `session_token_hash`, `session_expires_at`
     - `cpu_total`, `cpu_free`, `ram_total_mb`, `ram_free_mb`, `io_pressure`, `last_seen`
+    - `available_images_json`
   - `events` (recommended)
     - append-only audit trail for debugging and failure forensics
     - `id` (pk), `timestamp`, `lease_id`, `event_type`, `payload_json`
@@ -306,11 +313,11 @@ loop every 5s:
   - Each host gets a pre-provisioned `host_id` and one bootstrap token created by operators.
   - On node-agent startup:
     - call `POST /v1/hosts/{host_id}/register` with `Authorization: Bearer <bootstrap_token>`
-    - include host facts: CPU, RAM, QEMU version, agent version, and available base image IDs
+    - include host facts: CPU, RAM, QEMU version, agent version, and cached image inventory (`available_images`)
   - Control-plane verifies token hash, marks host active, and returns a short-lived session token.
   - Steady state:
     - node-agent heartbeats every 5 to 10 seconds using `Authorization: Bearer <session_token>`
-    - heartbeat updates `last_seen`, free capacity, IO pressure, and running VM IDs
+    - heartbeat updates `last_seen`, free capacity, IO pressure, running VM IDs, and cached image inventory
   - Scheduling guard:
     - host is schedulable only when `enabled=true` and `now - last_seen < stale_timeout`
     - stale host is removed from placement decisions until it re-registers/heartbeats
@@ -337,6 +344,7 @@ loop every 5s:
 - Configuration (env vars)
   - `JENKINS_URL`, `JENKINS_USER`, `JENKINS_API_TOKEN`
   - `DATABASE_URL=sqlite:///./control_plane.db`
+  - `LABEL_POLICIES_FILE`, `IMAGE_CATALOG_FILE`
   - `LOOP_INTERVAL_SEC=5`, `GC_INTERVAL_SEC=30`
   - `GLOBAL_MAX_VMS`, `LABEL_MAX_INFLIGHT`, `LABEL_BURST`
   - `CONNECT_DEADLINE_SEC`, `DISCONNECTED_GRACE_SEC`, `VM_TTL_SEC`

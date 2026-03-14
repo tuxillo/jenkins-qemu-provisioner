@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, model_validator
 
+from control_plane.guest_images import AvailableImage
+
 
 class RegisterHostRequest(BaseModel):
     agent_version: str
@@ -11,6 +13,7 @@ class RegisterHostRequest(BaseModel):
     cpu_allocatable: int | None = Field(default=None, ge=1)
     ram_allocatable_mb: int | None = Field(default=None, ge=256)
     base_image_ids: list[str] = Field(default_factory=list)
+    available_images: list[AvailableImage] = Field(default_factory=list)
     addr: str
     os_family: str | None = None
     os_flavor: str | None = None
@@ -49,6 +52,7 @@ class HeartbeatRequest(BaseModel):
     ram_free_mb: int = Field(ge=0)
     io_pressure: float = Field(ge=0.0)
     running_vm_ids: list[str] = Field(default_factory=list)
+    available_images: list[AvailableImage] = Field(default_factory=list)
     os_family: str | None = None
     os_flavor: str | None = None
     os_version: str | None = None
@@ -89,6 +93,8 @@ class LeaseRead(BaseModel):
     host_id: str | None
     connect_deadline: datetime
     ttl_deadline: datetime
+    guest_image: str | None = None
+    base_image_id: str | None = None
     bound_build_url: str | None = None
     last_error: str | None
 

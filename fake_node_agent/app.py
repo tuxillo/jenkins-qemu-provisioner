@@ -39,7 +39,12 @@ def _register_and_heartbeat_worker(stop_event: threading.Event) -> None:
                         "ram_total_mb": settings.ram_total_mb,
                         "cpu_allocatable": settings.effective_cpu_allocatable,
                         "ram_allocatable_mb": settings.effective_ram_allocatable_mb,
-                        "base_image_ids": ["fake-base"],
+                        "base_image_ids": [
+                            image["base_image_id"]
+                            for image in settings.available_images
+                            if image.get("base_image_id")
+                        ],
+                        "available_images": settings.available_images,
                         "addr": f"{settings.bind_host}:{settings.bind_port}",
                         "os_family": settings.os_family,
                         "os_version": settings.os_version,
@@ -70,6 +75,7 @@ def _register_and_heartbeat_worker(stop_event: threading.Event) -> None:
                     ),
                     "io_pressure": settings.io_pressure,
                     "running_vm_ids": _running_vm_ids(),
+                    "available_images": settings.available_images,
                     "os_family": settings.os_family,
                     "os_version": settings.os_version,
                     "qemu_binary": settings.qemu_binary,

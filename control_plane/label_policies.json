@@ -1,0 +1,31 @@
+{
+  "dragonflybsd-nvmm": {
+    "guest_image": "default",
+    "profile": "small",
+    "required_accel": "nvmm"
+  },
+  "linux-kvm || dragonflybsd-nvmm": {
+    "guest_image": "default",
+    "profile": "small"
+  },
+  "linux-kvm": {
+    "guest_image": "default",
+    "profile": "small",
+    "required_accel": "kvm"
+  },
+  "linux-small": {
+    "guest_image": "default",
+    "profile": "small",
+    "required_accel": "kvm"
+  },
+  "linux-medium": {
+    "guest_image": "default",
+    "profile": "medium",
+    "required_accel": "kvm"
+  },
+  "linux-large": {
+    "guest_image": "default",
+    "profile": "large",
+    "required_accel": "kvm"
+  }
+}

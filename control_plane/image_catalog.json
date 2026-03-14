@@ -1,0 +1,12 @@
+{
+  "default": {
+    "base_image_id": "default",
+    "os_family": "other",
+    "os_flavor": "default",
+    "os_version": "current",
+    "cpu_arch": "x86_64",
+    "source_kind": "manual_local",
+    "format": "qcow2",
+    "cache_policy": "require_warm"
+  }
+}

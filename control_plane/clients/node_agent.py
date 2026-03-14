@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Literal
 
 import httpx
 
@@ -6,10 +7,21 @@ from control_plane.clients.http import RetryPolicy, request_with_retry
 
 
 @dataclass
+class BaseImageRequest:
+    guest_image: str
+    base_image_id: str
+    source_kind: Literal["manual_local", "remote_cache"]
+    source_url: str | None
+    source_digest: str | None
+    format: str
+
+
+@dataclass
 class VMEnsureRequest:
     vm_id: str
     label: str
-    base_image_id: str
+    guest_image: str
+    base_image: BaseImageRequest
     overlay_path: str
     vcpu: int
     ram_mb: int
