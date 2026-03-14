@@ -38,3 +38,5 @@ def test_fake_agent_capacity() -> None:
     assert "selected_accel" in body
     assert "cpu_allocatable" in body
     assert "ram_allocatable_mb" in body
+    assert "stats_collected_at" in body
+    assert "disk_busy_frac" in body

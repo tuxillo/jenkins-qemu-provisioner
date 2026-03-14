@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 
 from node_agent.config import get_agent_settings
+from node_agent.host_stats import get_host_stats_service
 from node_agent.state import list_vms
 
 
@@ -128,6 +129,7 @@ def send_heartbeat(client: httpx.Client, state: ControlPlaneSession) -> None:
         raise RuntimeError("missing session token")
 
     capacity = current_capacity_snapshot()
+    host_stats = get_host_stats_service().latest()
     payload = {
         "cpu_total": capacity["cpu_total"],
         "ram_total_mb": capacity["ram_total_mb"],
@@ -135,7 +137,7 @@ def send_heartbeat(client: httpx.Client, state: ControlPlaneSession) -> None:
         "ram_allocatable_mb": capacity["ram_allocatable_mb"],
         "cpu_free": capacity["cpu_free"],
         "ram_free_mb": capacity["ram_free_mb"],
-        "io_pressure": 0.0,
+        "io_pressure": host_stats.io_pressure,
         "running_vm_ids": capacity["running_vm_ids"],
         "os_family": settings.os_family,
         "os_flavor": settings.os_flavor,

@@ -40,7 +40,19 @@ class _FakeClient:
         return _FakeResponse(self.response_payload)
 
 
+class _FakeHostStatsService:
+    def __init__(self, io_pressure: float) -> None:
+        self._io_pressure = io_pressure
+
+    def latest(self):
+        return SimpleNamespace(io_pressure=self._io_pressure)
+
+
 def test_send_heartbeat_reports_free_capacity_after_vm_reservations(monkeypatch):
+    monkeypatch.setattr(
+        "node_agent.heartbeat.get_host_stats_service",
+        lambda: _FakeHostStatsService(0.25),
+    )
     monkeypatch.setattr(
         "node_agent.heartbeat.get_agent_settings",
         lambda: SimpleNamespace(
@@ -79,10 +91,15 @@ def test_send_heartbeat_reports_free_capacity_after_vm_reservations(monkeypatch)
     assert client.last_json is not None
     assert client.last_json["cpu_free"] == 5
     assert client.last_json["ram_free_mb"] == 13312
+    assert client.last_json["io_pressure"] == 0.25
     assert client.last_json["running_vm_ids"] == ["vm1", "vm2"]
 
 
 def test_send_heartbeat_clamps_negative_free_capacity(monkeypatch):
+    monkeypatch.setattr(
+        "node_agent.heartbeat.get_host_stats_service",
+        lambda: _FakeHostStatsService(0.0),
+    )
     monkeypatch.setattr(
         "node_agent.heartbeat.get_agent_settings",
         lambda: SimpleNamespace(
@@ -122,6 +139,10 @@ def test_send_heartbeat_clamps_negative_free_capacity(monkeypatch):
 
 
 def test_send_heartbeat_uses_allocatable_capacity_when_configured(monkeypatch):
+    monkeypatch.setattr(
+        "node_agent.heartbeat.get_host_stats_service",
+        lambda: _FakeHostStatsService(0.1),
+    )
     monkeypatch.setattr(
         "node_agent.heartbeat.get_agent_settings",
         lambda: SimpleNamespace(

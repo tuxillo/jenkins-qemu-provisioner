@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi.testclient import TestClient
 
 from node_agent.config import get_agent_settings
+from node_agent.host_stats import reset_host_stats_service
 
 os.environ["NODE_AGENT_DISABLE_WORKERS"] = "true"
 os.environ["NODE_AGENT_DRY_RUN"] = "true"
@@ -24,6 +25,7 @@ def setup_function() -> None:
     if os.path.exists(db_path):
         os.remove(db_path)
     get_agent_settings.cache_clear()
+    reset_host_stats_service()
     initialize_state()
 
 
@@ -116,3 +118,8 @@ def test_capacity_endpoint_reports_allocatable_pool(monkeypatch) -> None:
     assert body["ram_total_mb"] >= body["ram_allocatable_mb"]
     assert body["ram_allocatable_mb"] == 12288
     assert body["ram_free_mb"] == 10240
+    assert body["io_pressure"] == 0.0
+    assert body["disk_busy_frac"] is None
+    assert body["disk_read_mb_s"] is None
+    assert body["disk_write_mb_s"] is None
+    assert body["stats_collected_at"]

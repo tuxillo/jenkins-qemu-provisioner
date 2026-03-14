@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from node_agent.config import get_agent_settings
 from node_agent.heartbeat import current_capacity_snapshot
+from node_agent.host_stats import get_host_stats_service
 from node_agent.qemu_runtime import (
     build_qemu_command,
     create_overlay,
@@ -15,7 +16,7 @@ from node_agent.qemu_runtime import (
     terminate_pid,
     write_cloud_init_files,
 )
-from node_agent.schemas import VMEnsureRequest, VMStateResponse
+from node_agent.schemas import HostCapacityResponse, VMEnsureRequest, VMStateResponse
 from node_agent.safety import cleanup_vm_artifacts
 from node_agent.state import delete_vm, get_vm, list_vms, upsert_vm, update_vm_state
 
@@ -327,24 +328,29 @@ def terminate_vm(vm_id: str, reason: str = "requested", force: bool = False) -> 
     return {"vm_id": vm_id, "state": "TERMINATED", "deleted_overlay": deleted_overlay}
 
 
-@router.get("/v1/capacity")
-def capacity() -> dict:
+@router.get("/v1/capacity", response_model=HostCapacityResponse)
+def capacity() -> HostCapacityResponse:
     settings = get_agent_settings()
     snapshot = current_capacity_snapshot()
+    host_stats = get_host_stats_service().latest()
     running_vm_ids = snapshot["running_vm_ids"]
-    return {
-        "host_id": settings.host_id,
-        "os_family": settings.os_family,
-        "os_flavor": settings.os_flavor,
-        "cpu_arch": settings.cpu_arch,
-        "selected_accel": settings.qemu_accel,
-        "supported_accels": settings.supported_accels,
-        "cpu_total": snapshot["cpu_total"],
-        "cpu_allocatable": snapshot["cpu_allocatable"],
-        "cpu_free": snapshot["cpu_free"],
-        "ram_total_mb": snapshot["ram_total_mb"],
-        "ram_allocatable_mb": snapshot["ram_allocatable_mb"],
-        "ram_free_mb": snapshot["ram_free_mb"],
-        "io_pressure": 0.0,
-        "running_vms": len(running_vm_ids) if isinstance(running_vm_ids, list) else 0,
-    }
+    return HostCapacityResponse(
+        host_id=settings.host_id,
+        os_family=settings.os_family,
+        os_flavor=settings.os_flavor,
+        cpu_arch=settings.cpu_arch,
+        selected_accel=settings.qemu_accel,
+        supported_accels=settings.supported_accels,
+        cpu_total=int(snapshot["cpu_total"]),
+        cpu_allocatable=int(snapshot["cpu_allocatable"]),
+        cpu_free=int(snapshot["cpu_free"]),
+        ram_total_mb=int(snapshot["ram_total_mb"]),
+        ram_allocatable_mb=int(snapshot["ram_allocatable_mb"]),
+        ram_free_mb=int(snapshot["ram_free_mb"]),
+        io_pressure=host_stats.io_pressure,
+        stats_collected_at=host_stats.collected_at,
+        disk_busy_frac=host_stats.disk_busy_frac,
+        disk_read_mb_s=host_stats.disk_read_mb_s,
+        disk_write_mb_s=host_stats.disk_write_mb_s,
+        running_vms=len(running_vm_ids) if isinstance(running_vm_ids, list) else 0,
+    )

@@ -25,6 +25,7 @@ Then edit `/etc/jenkins-qemu-node-agent/env`:
 - `NODE_AGENT_ADVERTISE_ADDR` (reachable from control-plane, e.g. `192.168.5.136:9000`)
 - `NODE_AGENT_ALLOCATABLE_VCPU` (optional explicit vCPU budget for managed VMs)
 - `NODE_AGENT_ALLOCATABLE_RAM_MB` (optional explicit RAM budget for managed VMs)
+- `NODE_AGENT_HOST_STATS_INTERVAL_SEC` (optional host stats sampling interval; defaults to `2`)
 - `NODE_AGENT_NETWORK_BACKEND` (`bridge`, `tap`, or `user`)
 - `NODE_AGENT_NETWORK_INTERFACE` (required for `bridge`/`tap`)
 
@@ -96,6 +97,7 @@ On DragonFlyBSD, rotate this logfile with a service restart.
 - Capacity: `curl http://<host>:<NODE_AGENT_BIND_PORT>/v1/capacity`
 - Service log: `tail -f /var/log/jenkins-qemu-node-agent.log`
 - In control-plane UI (`/ui`), host should appear with matching platform (`family/flavor/arch`), selected accelerator, physical totals, allocatable totals, and current free schedulable capacity.
+- `/v1/capacity` now also includes optional cached host-stat diagnostics such as `stats_collected_at`, `disk_busy_frac`, `disk_read_mb_s`, and `disk_write_mb_s` when the active platform backend provides them.
 
 ## 5) Manual base image customization
 

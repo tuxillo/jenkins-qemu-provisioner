@@ -218,5 +218,9 @@ def capacity() -> dict:
         "ram_allocatable_mb": settings.effective_ram_allocatable_mb,
         "ram_free_mb": max(settings.effective_ram_allocatable_mb - running * 1024, 0),
         "io_pressure": settings.io_pressure,
+        "stats_collected_at": datetime.now(UTC),
+        "disk_busy_frac": settings.io_pressure,
+        "disk_read_mb_s": None,
+        "disk_write_mb_s": None,
         "running_vms": running,
     }

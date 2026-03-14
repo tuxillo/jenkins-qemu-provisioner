@@ -6,6 +6,7 @@ import uvicorn
 
 from node_agent.api import router
 from node_agent.config import get_agent_settings
+from node_agent.host_stats import reset_host_stats_service, start_host_stats_thread
 from node_agent.heartbeat import start_heartbeat_thread
 from node_agent.safety import start_safety_thread, startup_reconcile
 from node_agent.state import initialize_state
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Jenkins QEMU Node Agent")
 app.include_router(router)
 stop_event = threading.Event()
+host_stats_thread: threading.Thread | None = None
 heartbeat_thread: threading.Thread | None = None
 safety_thread: threading.Thread | None = None
 
@@ -23,6 +25,8 @@ safety_thread: threading.Thread | None = None
 @app.on_event("startup")
 def startup() -> None:
     settings = get_agent_settings()
+    stop_event.clear()
+    reset_host_stats_service()
     initialize_state()
     startup_reconcile()
     logger.info(
@@ -44,6 +48,8 @@ def startup() -> None:
         settings.supported_accels,
     )
     if not settings.disable_workers:
+        global host_stats_thread
+        host_stats_thread = start_host_stats_thread(stop_event)
         global heartbeat_thread
         heartbeat_thread = start_heartbeat_thread(stop_event)
         global safety_thread
@@ -53,6 +59,8 @@ def startup() -> None:
 @app.on_event("shutdown")
 def shutdown() -> None:
     stop_event.set()
+    if host_stats_thread:
+        host_stats_thread.join(timeout=1)
     if heartbeat_thread:
         heartbeat_thread.join(timeout=1)
     if safety_thread:

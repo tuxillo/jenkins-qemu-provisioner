@@ -15,6 +15,7 @@ Host registration and heartbeat payloads include:
 - `cpu_total`, `ram_total_mb`: physical host totals for visibility
 - `cpu_allocatable`, `ram_allocatable_mb`: schedulable VM pool budget
 - `cpu_free`, `ram_free_mb`: current free capacity inside the allocatable VM pool
+- `io_pressure`: normalized `0.0..1.0` host storage pressure hint for soft scheduling preference
 
 Rules:
 
@@ -42,6 +43,7 @@ Optional fields:
 
 - `node_agent_auth_token`
 - `allocatable_vcpu`, `allocatable_ram_mb`
+- `host_stats_interval_sec`
 - `heartbeat_interval_sec`
 - `ttl_check_interval_sec`
 - `reconcile_interval_sec`
@@ -55,6 +57,23 @@ Optional fields:
 - `GET /v1/vms`: list VM records for reconciliation
 - `GET /v1/capacity`: report physical totals, allocatable totals, free schedulable CPU/RAM, and IO pressure
 - `GET /healthz`: agent liveness
+
+### Host Stats Contract
+
+Node-agent host stats collection is platform-specific internally, but emits a generic
+contract externally.
+
+- Heartbeat continues to send only generic scheduler-facing metrics; today that means
+  `io_pressure` plus the allocatable/free capacity fields above.
+- `GET /v1/capacity` may additionally expose optional host-diagnostic fields:
+  - `stats_collected_at`: timestamp of the last cached stats sample
+  - `disk_busy_frac`: normalized `0.0..1.0` busy fraction for the VM-storage device set
+  - `disk_read_mb_s`: sampled read throughput
+  - `disk_write_mb_s`: sampled write throughput
+- Diagnostic fields are additive and may be `null` when the active platform backend does
+  not provide them yet.
+- Platform-native raw counters must remain internal to node-agent and must not leak into
+  the control-plane API contract.
 
 ## Service Management
 

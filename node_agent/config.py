@@ -40,6 +40,7 @@ class AgentSettings(BaseSettings):
     disk_interface: str = Field(default="virtio")
 
     service_manager: str = Field(default="systemd")
+    host_stats_interval_sec: int = Field(default=2, ge=1)
     heartbeat_interval_sec: int = Field(default=5, ge=1)
     ttl_check_interval_sec: int = Field(default=5, ge=1)
     reconcile_interval_sec: int = Field(default=10, ge=1)
