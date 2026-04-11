@@ -182,7 +182,7 @@ pfs_exists() {
 
 ensure_parent_directory() {
   [ -d "$ROOT_PARENT" ] || die "root parent does not exist: $ROOT_PARENT"
-  [ "$(stat -f %T "$ROOT_PARENT")" = "hammer2" ] || die "$ROOT_PARENT is not on a HAMMER2 filesystem"
+  find_hammer2_mount "$ROOT_PARENT" >/dev/null
 }
 
 append_unique_line() {
