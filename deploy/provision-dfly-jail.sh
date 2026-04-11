@@ -13,6 +13,7 @@ JAIL_HOSTNAME=${JAIL_HOSTNAME:-}
 JAIL_INTERFACE=${JAIL_INTERFACE:-}
 JAIL_SERVICE_IP=${JAIL_SERVICE_IP:-}
 JAIL_LOOPBACK_IP=${JAIL_LOOPBACK_IP:-}
+JAIL_FSTAB_PATH=${JAIL_FSTAB_PATH:-}
 DRY_RUN=${DRY_RUN:-0}
 BOOTSTRAP_PKG=${BOOTSTRAP_PKG:-0}
 
@@ -30,7 +31,7 @@ Prepare a DragonFly jail root from the latest published world artifact.
 This script:
   - discovers the newest world artifact from the release index
   - creates a HAMMER2 PFS under /build/jails by default
-  - mounts the PFS and persists it in /etc/fstab
+  - mounts the PFS and persists the jail root mount in /etc/fstab.NAME
   - extracts the world tarball into the jail root
   - writes host /etc/rc.conf jail configuration
   - writes minimal jail-local /etc/rc.conf and /etc/resolv.conf
@@ -45,6 +46,7 @@ Options:
   --loopback-subnet CIDR      Auto-allocation subnet for jail loopback IPs (default: 127.0.0.0/24)
   --service-ip IP             Explicit non-loopback jail IP
   --loopback-ip IP            Explicit jail loopback IP
+  --fstab-path PATH           Per-jail fstab path (default: /etc/fstab.NAME)
   --artifact-name NAME        Specific world artifact filename to use
   --release-index-url URL     Release index URL (default: avalon snapshots releases URL)
   --resolver IP               Nameserver to write into jail resolv.conf (repeatable)
@@ -141,20 +143,19 @@ latest_world_artifact() {
 }
 
 find_hammer2_mount() {
-  local target=$1 best_mount= best_special= special mountpoint fstype rest
-  while read -r special mountpoint fstype rest; do
-    [ "$fstype" = "hammer2" ] || continue
-    case "$target" in
-      "$mountpoint"|"$mountpoint"/*)
-        if [ ${#mountpoint} -gt ${#best_mount} ]; then
-          best_mount=$mountpoint
-          best_special=$special
-        fi
-        ;;
-    esac
-  done < <(mount -p)
-  [ -n "$best_mount" ] || die "$target is not on a mounted HAMMER2 filesystem"
-  printf '%s\t%s\n' "$best_special" "$best_mount"
+  local target=$1
+  local df_line special fstype mountpoint
+
+  df_line=$(df -T "$target" 2>/dev/null | awk 'NR == 2 { print $1 "\t" $2 "\t" $NF }')
+  [ -n "$df_line" ] || die "could not determine filesystem for $target"
+
+  special=${df_line%%$'\t'*}
+  df_line=${df_line#*$'\t'}
+  fstype=${df_line%%$'\t'*}
+  mountpoint=${df_line#*$'\t'}
+
+  [ "$fstype" = "hammer2" ] || die "$target is not on a mounted HAMMER2 filesystem"
+  printf '%s\t%s\n' "$special" "$mountpoint"
 }
 
 is_mountpoint() {
@@ -296,9 +297,13 @@ ensure_jail_pfs() {
     if ! pfs_exists "$hammer_mount" "$JAIL_NAME"; then
       run_cmd hammer2 -s "$hammer_mount" pfs-create "$JAIL_NAME"
     fi
-    append_unique_line "$FSTAB_PATH" "# dfly-jail-provisioner:${JAIL_NAME}" "${PFS_SPECIAL} ${JAIL_ROOT} hammer2 rw 2 2 # dfly-jail-provisioner:${JAIL_NAME}"
+    write_jail_fstab
     run_cmd mount_hammer2 "$PFS_SPECIAL" "$JAIL_ROOT"
   fi
+}
+
+write_jail_fstab() {
+  append_unique_line "$JAIL_FSTAB_PATH" "# dfly-jail-provisioner:${JAIL_NAME}:root" "${PFS_SPECIAL} ${JAIL_ROOT} hammer2 rw 2 2 # dfly-jail-provisioner:${JAIL_NAME}:root"
 }
 
 artifact_url_for() {
@@ -347,6 +352,8 @@ jail_${JAIL_NAME}_rootdir="${JAIL_ROOT}"
 jail_${JAIL_NAME}_hostname="${JAIL_HOSTNAME}"
 jail_${JAIL_NAME}_ip="${JAIL_LOOPBACK_IP},${JAIL_SERVICE_IP}"
 jail_${JAIL_NAME}_interface="${JAIL_INTERFACE}"
+jail_${JAIL_NAME}_mount_enable="YES"
+jail_${JAIL_NAME}_fstab="${JAIL_FSTAB_PATH}"
 jail_${JAIL_NAME}_devfs_enable="YES"
 jail_${JAIL_NAME}_procfs_enable="NO"
 EOF
@@ -439,6 +446,10 @@ parse_args() {
         JAIL_LOOPBACK_IP=$2
         shift 2
         ;;
+      --fstab-path)
+        JAIL_FSTAB_PATH=$2
+        shift 2
+        ;;
       --artifact-name)
         ARTIFACT_NAME=$2
         shift 2
@@ -487,6 +498,9 @@ validate_inputs() {
   if [ -z "$JAIL_HOSTNAME" ]; then
     JAIL_HOSTNAME=$JAIL_NAME
   fi
+  if [ -z "$JAIL_FSTAB_PATH" ]; then
+    JAIL_FSTAB_PATH="/etc/fstab.${JAIL_NAME}"
+  fi
   [ "$JAIL_SERVICE_IP" != "$JAIL_LOOPBACK_IP" ] || [ -z "$JAIL_SERVICE_IP" ] || die "service and loopback IPs must be different"
   require_command fetch
   require_command tar
@@ -510,7 +524,8 @@ print_summary() {
   log "loopback ip: ${JAIL_LOOPBACK_IP}"
   log "service ip: ${JAIL_SERVICE_IP}"
   log "rc.conf block tag: dfly-jail-provisioner:${JAIL_NAME}"
-  log "fstab marker: dfly-jail-provisioner:${JAIL_NAME}"
+  log "jail fstab: ${JAIL_FSTAB_PATH}"
+  log "fstab marker: dfly-jail-provisioner:${JAIL_NAME}:root"
   if ! grep -Eq '^jail_default_allow_listen_override="YES"' "$RC_CONF_PATH" 2>/dev/null; then
     warn "jail_default_allow_listen_override is not set to YES in $RC_CONF_PATH; jailed listeners may conflict with host wildcard listeners"
   fi
