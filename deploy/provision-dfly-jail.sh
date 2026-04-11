@@ -401,7 +401,7 @@ bootstrap_pkg_and_install() {
   if [ "$DRY_RUN" != "1" ] && [ "$mounted_here" = "1" ]; then
     trap 'umount "$JAIL_ROOT/dev" >/dev/null 2>&1 || true' RETURN
   fi
-  run_cmd chroot "$JAIL_ROOT" /usr/bin/env ASSUME_ALWAYS_YES=yes /bin/sh -lc 'cd /usr && make pkg-bootstrap-force'
+  run_cmd chroot "$JAIL_ROOT" /usr/bin/env ASSUME_ALWAYS_YES=yes /bin/sh -c 'cd /usr && make pkg-bootstrap-force'
   if [ ${#PACKAGES[@]} -gt 0 ]; then
     run_cmd chroot "$JAIL_ROOT" /usr/bin/env ASSUME_ALWAYS_YES=yes PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/pkg install -y "${PACKAGES[@]}"
   fi
