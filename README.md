@@ -88,6 +88,7 @@ make test
 - It is intended to run on a DragonFly host as root.
 - It requires `/build/jails` or another chosen parent path to live on a mounted HAMMER2 filesystem.
 - It creates one HAMMER2 PFS per jail, mounts it, persists the jail root mount in `/etc/fstab.<name>`, extracts the latest `DragonFly-x86_64-*.world.tar.gz`, and writes host `/etc/rc.conf` jail entries.
+- By default it caches downloaded world artifacts in `/var/cache/dfly-jails` and keeps the latest three verified artifacts.
 - It also writes minimal jail-local `etc/rc.conf` and `etc/resolv.conf` and can optionally bootstrap `pkg` plus install packages.
 
 Example:

@@ -7,6 +7,8 @@ SERVICE_SUBNET=${SERVICE_SUBNET:-10.200.0.0/24}
 LOOPBACK_SUBNET=${LOOPBACK_SUBNET:-127.0.0.0/24}
 RC_CONF_PATH=${RC_CONF_PATH:-/etc/rc.conf}
 FSTAB_PATH=${FSTAB_PATH:-/etc/fstab}
+CACHE_DIR=${CACHE_DIR:-/var/cache/dfly-jails}
+CACHE_KEEP=${CACHE_KEEP:-3}
 ARTIFACT_NAME=${ARTIFACT_NAME:-}
 JAIL_NAME=${JAIL_NAME:-}
 JAIL_HOSTNAME=${JAIL_HOSTNAME:-}
@@ -16,6 +18,7 @@ JAIL_LOOPBACK_IP=${JAIL_LOOPBACK_IP:-}
 JAIL_FSTAB_PATH=${JAIL_FSTAB_PATH:-}
 DRY_RUN=${DRY_RUN:-0}
 BOOTSTRAP_PKG=${BOOTSTRAP_PKG:-0}
+NO_CACHE=${NO_CACHE:-0}
 
 declare -a PACKAGES=()
 declare -a RESOLVERS=()
@@ -42,6 +45,9 @@ Options:
   --hostname HOSTNAME         Jail hostname (default: NAME)
   --interface IFACE           Host interface for rc.conf jail aliasing (required)
   --root-parent PATH          Parent directory on mounted HAMMER2 fs (default: /build/jails)
+  --cache-dir PATH            Local world artifact cache directory (default: /var/cache/dfly-jails)
+  --cache-keep N              Number of cached world artifacts to keep (default: 3)
+  --no-cache                  Always download instead of reusing local cache
   --service-subnet CIDR       Auto-allocation subnet for jail service IPs (default: 10.200.0.0/24)
   --loopback-subnet CIDR      Auto-allocation subnet for jail loopback IPs (default: 127.0.0.0/24)
   --service-ip IP             Explicit non-loopback jail IP
@@ -186,6 +192,15 @@ ensure_parent_directory() {
   find_hammer2_mount "$ROOT_PARENT" >/dev/null
 }
 
+ensure_cache_directory() {
+  [ "$NO_CACHE" = "1" ] && return 0
+  if [ "$DRY_RUN" = "1" ]; then
+    log "would ensure cache directory $CACHE_DIR"
+    return 0
+  fi
+  mkdir -p "$CACHE_DIR"
+}
+
 append_unique_line() {
   local file=$1 marker=$2 line=$3 tmp
   tmp=$(mktemp)
@@ -310,6 +325,75 @@ artifact_url_for() {
   printf '%s%s\n' "$RELEASE_INDEX_URL" "$1"
 }
 
+verify_cached_artifact() {
+  local artifact_path=$1 sha_path=$2 expected_hash actual_hash
+  [ -f "$artifact_path" ] || return 1
+  [ -f "$sha_path" ] || return 1
+  expected_hash=$(awk '{ print $1; exit }' "$sha_path")
+  [ -n "$expected_hash" ] || return 1
+  actual_hash=$(sha256 -q "$artifact_path")
+  [ "$expected_hash" = "$actual_hash" ]
+}
+
+prune_cached_artifacts() {
+  local cache_keep=$1
+  local -a cached_worlds=()
+  local world_path artifact_basename
+
+  [ "$NO_CACHE" = "1" ] && return 0
+  [ "$DRY_RUN" = "1" ] && return 0
+  [ -d "$CACHE_DIR" ] || return 0
+
+  mapfile -t cached_worlds < <(find "$CACHE_DIR" -maxdepth 1 -type f -name 'DragonFly-x86_64-*.world.tar.gz' | sort -r)
+  if [ ${#cached_worlds[@]} -le "$cache_keep" ]; then
+    return 0
+  fi
+
+  for world_path in "${cached_worlds[@]:cache_keep}"; do
+    artifact_basename=$(basename "$world_path")
+    rm -f "$world_path" "$CACHE_DIR/${artifact_basename}.sha256"
+  done
+}
+
+prepare_cached_artifact() {
+  local artifact_url=$1 sha_url=$2 workdir=$3
+  local artifact_path sha_path cache_artifact_path cache_sha_path
+
+  artifact_path="$workdir/$ARTIFACT_NAME"
+  sha_path="$workdir/${ARTIFACT_NAME}.sha256"
+  cache_artifact_path="$CACHE_DIR/$ARTIFACT_NAME"
+  cache_sha_path="$CACHE_DIR/${ARTIFACT_NAME}.sha256"
+
+  if [ "$NO_CACHE" = "1" ]; then
+    run_cmd fetch -o "$artifact_path" "$artifact_url"
+    run_cmd fetch -o "$sha_path" "$sha_url"
+    return 0
+  fi
+
+  ensure_cache_directory
+
+  if [ "$DRY_RUN" != "1" ] && verify_cached_artifact "$cache_artifact_path" "$cache_sha_path"; then
+    log "using cached artifact: $cache_artifact_path"
+    cp "$cache_artifact_path" "$artifact_path"
+    cp "$cache_sha_path" "$sha_path"
+    return 0
+  fi
+
+  if [ "$DRY_RUN" != "1" ] && [ -f "$cache_artifact_path" -o -f "$cache_sha_path" ]; then
+    log "refreshing stale cached artifact: $cache_artifact_path"
+    rm -f "$cache_artifact_path" "$cache_sha_path"
+  fi
+
+  run_cmd fetch -o "$artifact_path" "$artifact_url"
+  run_cmd fetch -o "$sha_path" "$sha_url"
+
+  if [ "$DRY_RUN" != "1" ]; then
+    cp "$artifact_path" "$cache_artifact_path"
+    cp "$sha_path" "$cache_sha_path"
+    prune_cached_artifacts "$CACHE_KEEP"
+  fi
+}
+
 write_resolv_conf() {
   local target=$1 tmp
   tmp=$(mktemp)
@@ -374,8 +458,7 @@ download_and_extract_world() {
   log "using world artifact: $ARTIFACT_NAME"
   log "artifact url: $artifact_url"
 
-  run_cmd fetch -o "$artifact_path" "$artifact_url"
-  run_cmd fetch -o "$sha_path" "$sha_url"
+  prepare_cached_artifact "$artifact_url" "$sha_url" "$workdir"
 
   if [ "$DRY_RUN" != "1" ]; then
     expected_hash=$(awk '{ print $1; exit }' "$sha_path")
@@ -429,6 +512,18 @@ parse_args() {
       --root-parent)
         ROOT_PARENT=$2
         shift 2
+        ;;
+      --cache-dir)
+        CACHE_DIR=$2
+        shift 2
+        ;;
+      --cache-keep)
+        CACHE_KEEP=$2
+        shift 2
+        ;;
+      --no-cache)
+        NO_CACHE=1
+        shift
         ;;
       --service-subnet)
         SERVICE_SUBNET=$2
@@ -513,6 +608,7 @@ validate_inputs() {
   require_command sed
   require_command stat
   require_command find
+  [ "$CACHE_KEEP" -ge 1 ] 2>/dev/null || die "--cache-keep must be at least 1"
   ensure_parent_directory
 }
 
@@ -521,6 +617,12 @@ print_summary() {
   log "prepared jail ${JAIL_NAME}"
   log "root: ${JAIL_ROOT}"
   log "artifact: ${ARTIFACT_NAME}"
+  if [ "$NO_CACHE" = "1" ]; then
+    log "cache: disabled"
+  else
+    log "cache dir: ${CACHE_DIR}"
+    log "cache keep: ${CACHE_KEEP}"
+  fi
   log "loopback ip: ${JAIL_LOOPBACK_IP}"
   log "service ip: ${JAIL_SERVICE_IP}"
   log "rc.conf block tag: dfly-jail-provisioner:${JAIL_NAME}"
