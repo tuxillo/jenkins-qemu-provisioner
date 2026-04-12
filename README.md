@@ -96,7 +96,7 @@ make test
 
 - `scripts/manage-dfly-jail.sh` manages DragonFly jails backed by HAMMER2 PFSes and published `world` artifacts.
 - It is intended to run on a DragonFly host as root.
-- It supports `create`, `destroy`, `start`, `stop`, `status`, and `list` subcommands.
+- It supports `create`, `destroy`, `start`, `stop`, `status`, `list`, `verify`, and `rebuild-network` subcommands.
 - `create` requires `/build/jails` or another chosen parent path to live on a mounted HAMMER2 filesystem.
 - Managed jail roots are mounted via `/etc/fstab.<name>`, while host jail configuration is written to `/etc/rc.conf`.
 - It supports two network modes:
@@ -105,6 +105,7 @@ make test
 - It regenerates manager-owned alias configuration in `/etc/rc.conf` for all managed jails.
 - By default it caches downloaded world artifacts in `/var/cache/dfly-jails` and keeps the latest three verified artifacts.
 - It can optionally bootstrap `pkg` plus install packages inside the prepared jail root during `create`.
+- Before mutating `/etc/rc.conf` or a managed `/etc/fstab.<name>`, it stores timestamped backups in `/var/backups/dfly-jail-manager/`.
 
 Prerequisites:
 
@@ -132,6 +133,7 @@ Basic workflow:
 sudo ./scripts/manage-dfly-jail.sh create --name web01 --bootstrap-pkg --packages "bash curl tmux"
 sudo service jail start web01
 sudo ./scripts/manage-dfly-jail.sh status --name web01
+sudo ./scripts/manage-dfly-jail.sh verify
 sudo ./scripts/manage-dfly-jail.sh stop --name web01
 sudo ./scripts/manage-dfly-jail.sh destroy --name web01
 ```
@@ -157,6 +159,8 @@ sudo ./scripts/manage-dfly-jail.sh start --name web01
 sudo ./scripts/manage-dfly-jail.sh stop --name web01
 sudo ./scripts/manage-dfly-jail.sh status --name web01
 sudo jls
+sudo ./scripts/manage-dfly-jail.sh verify
+sudo ./scripts/manage-dfly-jail.sh rebuild-network
 ```
 
 Default network model:
@@ -252,6 +256,7 @@ Notes:
 - `interface-alias` mode requires an explicit `--service-ip`; this is deliberate so the script does not guess addresses on a real network.
 - The PF example above is intentionally minimal. Add explicit `rdr` rules later if you want inbound host or LAN traffic forwarded to a jail service.
 - The shared artifact cache is not per-jail. Destroying a jail does not clear `/var/cache/dfly-jails`.
+- Use `verify` to check that manager-owned jail state in `/etc/rc.conf` is internally consistent. Use `rebuild-network` to regenerate only the `dfly-jail-manager:network` block from parsed jail metadata.
 
 ## Task tracking
 

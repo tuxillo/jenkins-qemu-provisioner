@@ -13,6 +13,7 @@ SERVICE_IFACE=${SERVICE_IFACE:-}
 RC_CONF_PATH=${RC_CONF_PATH:-/etc/rc.conf}
 CACHE_DIR=${CACHE_DIR:-/var/cache/dfly-jails}
 CACHE_KEEP=${CACHE_KEEP:-3}
+BACKUP_DIR=${BACKUP_DIR:-/var/backups/dfly-jail-manager}
 DRY_RUN=${DRY_RUN:-0}
 NO_CACHE=${NO_CACHE:-0}
 
@@ -47,6 +48,8 @@ Commands:
   stop     Stop a managed jail via service(8)
   status   Show status for one managed jail
   list     List all managed jails
+  verify   Validate manager-owned jail state in rc.conf
+  rebuild-network  Rebuild only the manager-owned network block
 
 Global options:
   --dry-run                   Print intended actions without changing the system
@@ -317,6 +320,7 @@ replace_managed_block() {
     rm -f "$tmp" "${tmp}.new"
     return 0
   fi
+  backup_file_if_exists "$file"
   cp "${tmp}.new" "$file"
   rm -f "$tmp" "${tmp}.new"
 }
@@ -371,6 +375,7 @@ remove_managed_blocks_for_name() {
     return 0
   fi
   normalize_managed_file "$tmp" > "${tmp}.new"
+  backup_file_if_exists "$file"
   cp "${tmp}.new" "$file"
   rm -f "$tmp"
   rm -f "${tmp}.new"
@@ -391,6 +396,7 @@ set_root_fstab_line() {
     rm -f "$tmp"
     return 0
   fi
+  backup_file_if_exists "$file"
   cp "$tmp" "$file"
   rm -f "$tmp"
 }
@@ -408,6 +414,7 @@ remove_root_fstab_line() {
     rm -f "$tmp"
     return 0
   fi
+  backup_file_if_exists "$file"
   if [ ! -s "$tmp" ]; then
     rm -f "$file" "$tmp"
   else
@@ -417,17 +424,137 @@ remove_root_fstab_line() {
 }
 
 managed_jail_names() {
-  [ -f "$RC_CONF_PATH" ] || return 0
-  grep -E '^# BEGIN (dfly-jail-manager|dfly-jail-provisioner):' "$RC_CONF_PATH" \
-    | sed -E 's/^# BEGIN (dfly-jail-manager|dfly-jail-provisioner)://g' \
-    | grep -Ev '^network$' \
-    | sort -u
+  managed_jail_records | awk -F'\t' '{ print $1 }'
 }
 
 rc_conf_value() {
   local key=$1
   [ -f "$RC_CONF_PATH" ] || return 1
   awk -F'"' -v key="$key" '$1 == key"=" { print $2; exit }' "$RC_CONF_PATH"
+}
+
+ensure_backup_dir() {
+  if [ "$DRY_RUN" = "1" ]; then
+    log "would ensure backup directory $BACKUP_DIR"
+    return 0
+  fi
+  mkdir -p "$BACKUP_DIR"
+}
+
+backup_file_if_exists() {
+  local file=$1 timestamp base backup_path
+  [ -f "$file" ] || return 0
+  ensure_backup_dir
+  timestamp=$(date +%Y%m%d-%H%M%S)
+  base=$(basename "$file")
+  backup_path="$BACKUP_DIR/${base}.${timestamp}"
+  if [ "$DRY_RUN" = "1" ]; then
+    log "would back up $file to $backup_path"
+    return 0
+  fi
+  cp "$file" "$backup_path"
+}
+
+managed_jail_records() {
+  [ -f "$RC_CONF_PATH" ] || return 0
+  awk '
+    function emit_record() {
+      if (name == "" || name == "network") {
+        return
+      }
+      split(ip_pair, ips, ",")
+      loopback_ip = ips[1]
+      service_ip = ips[2]
+      print name "\t" network_mode "\t" service_iface "\t" rootdir "\t" hostname "\t" loopback_ip "\t" service_ip "\t" fstab
+    }
+    /^# BEGIN (dfly-jail-manager|dfly-jail-provisioner):/ {
+      emit_record()
+      in_block = 1
+      split($3, parts, ":")
+      name = parts[2]
+      network_mode = ""
+      service_iface = ""
+      rootdir = ""
+      hostname = ""
+      ip_pair = ""
+      fstab = ""
+      next
+    }
+    /^# END (dfly-jail-manager|dfly-jail-provisioner):/ {
+      emit_record()
+      in_block = 0
+      name = ""
+      next
+    }
+    !in_block { next }
+    /^# network_mode=/ {
+      network_mode = substr($0, length("# network_mode=") + 1)
+      next
+    }
+    /^# service_iface=/ {
+      service_iface = substr($0, length("# service_iface=") + 1)
+      next
+    }
+    $1 ~ /^jail_.*_rootdir=/ {
+      match($0, /="([^"]+)"/, m)
+      rootdir = m[1]
+      next
+    }
+    $1 ~ /^jail_.*_hostname=/ {
+      match($0, /="([^"]+)"/, m)
+      hostname = m[1]
+      next
+    }
+    $1 ~ /^jail_.*_ip=/ {
+      match($0, /="([^"]+)"/, m)
+      ip_pair = m[1]
+      next
+    }
+    $1 ~ /^jail_.*_fstab=/ {
+      match($0, /="([^"]+)"/, m)
+      fstab = m[1]
+      next
+    }
+  ' "$RC_CONF_PATH"
+}
+
+managed_jail_record_by_name() {
+  local name=$1
+  managed_jail_records | awk -F'\t' -v name="$name" '$1 == name { print; exit }'
+}
+
+validate_managed_state() {
+  local -A seen_names=() seen_loopbacks=() seen_services=()
+  local line name mode iface rootdir hostname loopback_ip service_ip fstab
+  while IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab; do
+    [ -n "$name" ] || continue
+    if [ -n "${seen_names[$name]:-}" ]; then
+      die "duplicate managed jail block found for $name"
+    fi
+    seen_names[$name]=1
+    mode=$(normalize_network_mode "$mode")
+    [ -n "$rootdir" ] || die "managed jail $name is missing rootdir"
+    [ -n "$hostname" ] || die "managed jail $name is missing hostname"
+    [ -n "$loopback_ip" ] || die "managed jail $name is missing loopback IP"
+    [ -n "$service_ip" ] || die "managed jail $name is missing service IP"
+    [ -n "$fstab" ] || die "managed jail $name is missing fstab path"
+    if [ -n "${seen_loopbacks[$loopback_ip]:-}" ]; then
+      die "managed jail config is inconsistent: $name and ${seen_loopbacks[$loopback_ip]} both use $loopback_ip"
+    fi
+    seen_loopbacks[$loopback_ip]=$name
+    if [ -n "${seen_services[$service_ip]:-}" ]; then
+      die "managed jail config is inconsistent: $name and ${seen_services[$service_ip]} both use $service_ip"
+    fi
+    seen_services[$service_ip]=$name
+    case "$mode" in
+      private-loopback)
+        [ -n "$iface" ] || true
+        ;;
+      interface-alias)
+        [ -n "$iface" ] || die "managed jail $name is missing service interface metadata"
+        ;;
+    esac
+  done < <(managed_jail_records)
 }
 
 managed_block_metadata() {
@@ -450,26 +577,26 @@ service_iface_mask_hex() {
 }
 
 resolve_existing_config() {
-  JAIL_ROOT=$(rc_conf_value "jail_${JAIL_NAME}_rootdir" || true)
-  JAIL_HOSTNAME=$(rc_conf_value "jail_${JAIL_NAME}_hostname" || true)
-  JAIL_INTERFACE=$(rc_conf_value "jail_${JAIL_NAME}_interface" || true)
-  JAIL_FSTAB_PATH=$(rc_conf_value "jail_${JAIL_NAME}_fstab" || true)
+  local record
+  record=$(managed_jail_record_by_name "$JAIL_NAME" || true)
+  if [ -z "$record" ]; then
+    JAIL_ROOT=
+    JAIL_HOSTNAME=
+    JAIL_INTERFACE=
+    JAIL_FSTAB_PATH=
+    JAIL_LOOPBACK_IP=
+    JAIL_SERVICE_IP=
+    NETWORK_MODE=private-loopback
+    SERVICE_IFACE=
+    return 0
+  fi
+  IFS=$'\t' read -r _record_name NETWORK_MODE SERVICE_IFACE JAIL_ROOT JAIL_HOSTNAME JAIL_LOOPBACK_IP JAIL_SERVICE_IP JAIL_FSTAB_PATH <<<"$record"
+  NETWORK_MODE=$(normalize_network_mode "$NETWORK_MODE")
   if [ -z "$JAIL_FSTAB_PATH" ]; then
     JAIL_FSTAB_PATH="/etc/fstab.${JAIL_NAME}"
   fi
-  local ip_pair
-  ip_pair=$(rc_conf_value "jail_${JAIL_NAME}_ip" || true)
-  if [ -n "$ip_pair" ]; then
-    IFS=, read -r JAIL_LOOPBACK_IP JAIL_SERVICE_IP <<<"$ip_pair"
-  fi
-  NETWORK_MODE=$(normalize_network_mode "$(managed_block_metadata "$JAIL_NAME" network_mode || true)")
-  SERVICE_IFACE=$(managed_block_metadata "$JAIL_NAME" service_iface || true)
-  if [ -z "$SERVICE_IFACE" ]; then
-    if [ "$NETWORK_MODE" = "private-loopback" ]; then
-      SERVICE_IFACE=$PRIVATE_IFACE
-    elif [ -n "$JAIL_INTERFACE" ]; then
-      SERVICE_IFACE=$JAIL_INTERFACE
-    fi
+  if [ -z "$SERVICE_IFACE" ] && [ "$NETWORK_MODE" = "private-loopback" ]; then
+    SERVICE_IFACE=$PRIVATE_IFACE
   fi
 }
 
@@ -543,12 +670,14 @@ managed_network_content() {
 
 rebuild_managed_network_block() {
   local content
+  validate_managed_state
   content=$(managed_network_content)
   if [ -n "$content" ]; then
     replace_managed_block "$RC_CONF_PATH" "$(network_tag)" "$content"
   else
     remove_managed_blocks_for_name "$RC_CONF_PATH" network
   fi
+  validate_managed_state
 }
 
 iface_has_ipv4() {
@@ -745,8 +874,12 @@ EOF
 }
 
 collect_used_ips() {
-  [ -f "$RC_CONF_PATH" ] || return 0
-  awk -F'"' -v current="$JAIL_NAME" '$1 ~ /^jail_.*_ip=$/ { if ($1 != "jail_" current "_ip=") print $2 }' "$RC_CONF_PATH" | tr ',' '\n' | sed '/^[[:space:]]*$/d' | sort -u
+  local name mode iface rootdir hostname loopback_ip service_ip fstab
+  while IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab; do
+    [ "$name" = "$JAIL_NAME" ] && continue
+    [ -n "$loopback_ip" ] && printf '%s\n' "$loopback_ip"
+    [ -n "$service_ip" ] && printf '%s\n' "$service_ip"
+  done < <(managed_jail_records)
 }
 
 prime_used_ips() {
@@ -876,6 +1009,7 @@ running_jid() {
 
 command_create() {
   [ -n "$JAIL_NAME" ] || die "create requires --name"
+  validate_managed_state
   NETWORK_MODE=$(normalize_network_mode "$NETWORK_MODE")
   if [ -n "$JAIL_INTERFACE" ]; then
     warn "--interface is deprecated; use --service-iface instead"
@@ -959,6 +1093,7 @@ command_create() {
 
 command_start() {
   [ -n "$JAIL_NAME" ] || die "start requires --name"
+  validate_managed_state
   resolve_existing_config
   [ -n "$JAIL_ROOT" ] || die "no managed jail configuration found for $JAIL_NAME"
   [ -f "$JAIL_FSTAB_PATH" ] || die "missing jail fstab: $JAIL_FSTAB_PATH"
@@ -1005,6 +1140,7 @@ command_destroy() {
 command_status() {
   local jid configured=no mounted=no mounted_special=
   [ -n "$JAIL_NAME" ] || die "status requires --name"
+  validate_managed_state
   resolve_existing_config
   if [ -n "$JAIL_ROOT" ]; then
     configured=yes
@@ -1040,6 +1176,7 @@ command_status() {
 
 command_list() {
   local name jid
+  validate_managed_state
   if ! managed_jail_names | grep -q .; then
     log "no managed jails found"
     return 0
@@ -1064,6 +1201,22 @@ command_list() {
     fi
     printf '\n'
   done < <(managed_jail_names)
+}
+
+command_verify() {
+  validate_managed_state
+  log "managed jail state is valid"
+  local name mode iface rootdir hostname loopback_ip service_ip fstab
+  while IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab; do
+    [ -n "$name" ] || continue
+    printf '%s\tmode=%s\tservice_iface=%s\tloopback_ip=%s\tservice_ip=%s\troot=%s\n' "$name" "$mode" "$iface" "$loopback_ip" "$service_ip" "$rootdir"
+  done < <(managed_jail_records)
+}
+
+command_rebuild_network() {
+  validate_managed_state
+  rebuild_managed_network_block
+  log "rebuilt manager-owned network block"
 }
 
 parse_common_flags() {
@@ -1257,6 +1410,14 @@ main() {
     list)
       [ $# -eq 0 ] || die "list does not accept additional options"
       command_list
+      ;;
+    verify)
+      [ $# -eq 0 ] || die "verify does not accept additional options"
+      command_verify
+      ;;
+    rebuild-network)
+      [ $# -eq 0 ] || die "rebuild-network does not accept additional options"
+      command_rebuild_network
       ;;
     *)
       die "unknown command: $command"
