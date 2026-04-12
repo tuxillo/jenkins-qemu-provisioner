@@ -616,7 +616,7 @@ resolve_existing_config() {
 }
 
 managed_network_content() {
-  local name content="" loopback_mask private_gateway private_mask mode iface service_mask
+  local name content="" loopback_mask private_gateway private_mask mode iface service_mask rootdir hostname loopback_ip service_ip fstab
   local saved_name saved_root saved_host saved_iface saved_service_ip saved_loopback_ip saved_fstab saved_mode saved_service_iface
   local -A alias_indexes=()
   saved_name=$JAIL_NAME
@@ -632,19 +632,19 @@ managed_network_content() {
   private_mask=$(cidr_netmask_hex "$SERVICE_SUBNET")
   loopback_mask=$LOOPBACK_ALIAS_MASK
 
-  while IFS= read -r name; do
+  while IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab; do
     [ -n "$name" ] || continue
-    JAIL_NAME=$name
-    resolve_existing_config
-    mode=$(normalize_network_mode "$NETWORK_MODE")
-    iface=$SERVICE_IFACE
-    [ -n "$JAIL_LOOPBACK_IP" ] || continue
-    [ -n "$JAIL_SERVICE_IP" ] || continue
+    mode=$(normalize_network_mode "$mode")
+    if [ -z "$iface" ] && [ "$mode" = "private-loopback" ]; then
+      iface=$PRIVATE_IFACE
+    fi
+    [ -n "$loopback_ip" ] || continue
+    [ -n "$service_ip" ] || continue
 
     if [ -z "${alias_indexes[$LOOPBACK_IFACE]:-}" ]; then
       alias_indexes[$LOOPBACK_IFACE]=0
     fi
-    content+="ifconfig_${LOOPBACK_IFACE}_alias${alias_indexes[$LOOPBACK_IFACE]}=\"inet ${JAIL_LOOPBACK_IP} netmask ${loopback_mask}\""$'\n'
+    content+="ifconfig_${LOOPBACK_IFACE}_alias${alias_indexes[$LOOPBACK_IFACE]}=\"inet ${loopback_ip} netmask ${loopback_mask}\""$'\n'
     alias_indexes[$LOOPBACK_IFACE]=$((alias_indexes[$LOOPBACK_IFACE] + 1))
 
     case "$mode" in
@@ -655,20 +655,20 @@ managed_network_content() {
         if [ -z "${alias_indexes[$PRIVATE_IFACE]:-}" ]; then
           alias_indexes[$PRIVATE_IFACE]=0
         fi
-        content+="ifconfig_${PRIVATE_IFACE}_alias${alias_indexes[$PRIVATE_IFACE]}=\"inet ${JAIL_SERVICE_IP} netmask ${private_mask}\""$'\n'
+        content+="ifconfig_${PRIVATE_IFACE}_alias${alias_indexes[$PRIVATE_IFACE]}=\"inet ${service_ip} netmask ${private_mask}\""$'\n'
         alias_indexes[$PRIVATE_IFACE]=$((alias_indexes[$PRIVATE_IFACE] + 1))
         ;;
       interface-alias)
-        [ -n "$iface" ] || die "missing service interface metadata for jail $JAIL_NAME"
+        [ -n "$iface" ] || die "missing service interface metadata for jail $name"
         service_mask=$(service_iface_mask_hex "$iface")
         if [ -z "${alias_indexes[$iface]:-}" ]; then
           alias_indexes[$iface]=0
         fi
-        content+="ifconfig_${iface}_alias${alias_indexes[$iface]}=\"inet ${JAIL_SERVICE_IP} netmask ${service_mask}\""$'\n'
+        content+="ifconfig_${iface}_alias${alias_indexes[$iface]}=\"inet ${service_ip} netmask ${service_mask}\""$'\n'
         alias_indexes[$iface]=$((alias_indexes[$iface] + 1))
         ;;
     esac
-  done < <(managed_jail_names)
+  done < <(managed_jail_records)
 
   JAIL_NAME=$saved_name
   JAIL_ROOT=$saved_root
@@ -1190,32 +1190,32 @@ command_status() {
 }
 
 command_list() {
-  local name jid
+  local name jid mode iface rootdir hostname loopback_ip service_ip fstab
   validate_managed_state
-  if ! managed_jail_names | grep -q .; then
+  if ! managed_jail_records | grep -q .; then
     log "no managed jails found"
     return 0
   fi
-  while IFS= read -r name; do
+  while IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab; do
     [ -n "$name" ] || continue
     JAIL_NAME=$name
-    resolve_existing_config
+    JAIL_ROOT=$rootdir
     jid=$(running_jid || true)
-    printf '%s\tconfigured=%s\trunning=%s\tmode=%s' "$name" yes "$([ -n "$jid" ] && printf yes || printf no)" "$NETWORK_MODE"
+    printf '%s\tconfigured=%s\trunning=%s\tmode=%s' "$name" yes "$([ -n "$jid" ] && printf yes || printf no)" "$mode"
     if [ -n "$jid" ]; then
       printf '\tjid=%s' "$jid"
     fi
-    if [ -n "$JAIL_ROOT" ]; then
-      printf '\troot=%s' "$JAIL_ROOT"
+    if [ -n "$rootdir" ]; then
+      printf '\troot=%s' "$rootdir"
     fi
-    if [ -n "$SERVICE_IFACE" ]; then
-      printf '\tservice_iface=%s' "$SERVICE_IFACE"
+    if [ -n "$iface" ]; then
+      printf '\tservice_iface=%s' "$iface"
     fi
-    if [ -n "$JAIL_SERVICE_IP" ]; then
-      printf '\tservice_ip=%s' "$JAIL_SERVICE_IP"
+    if [ -n "$service_ip" ]; then
+      printf '\tservice_ip=%s' "$service_ip"
     fi
     printf '\n'
-  done < <(managed_jail_names)
+  done < <(managed_jail_records)
 }
 
 command_verify() {
