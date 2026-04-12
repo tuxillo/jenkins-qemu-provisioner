@@ -89,13 +89,14 @@ make test
 - It supports `create`, `destroy`, `start`, `stop`, `status`, and `list` subcommands.
 - `create` requires `/build/jails` or another chosen parent path to live on a mounted HAMMER2 filesystem.
 - Managed jail roots are mounted via `/etc/fstab.<name>`, while host jail configuration is written to `/etc/rc.conf`.
+- It uses a shared private jail subnet on `lo1` by default and regenerates manager-owned `lo0`/`lo1` alias configuration in `/etc/rc.conf` for all managed jails.
 - By default it caches downloaded world artifacts in `/var/cache/dfly-jails` and keeps the latest three verified artifacts.
 - It can optionally bootstrap `pkg` plus install packages inside the prepared jail root during `create`.
 
 Examples:
 
 ```bash
-sudo ./scripts/manage-dfly-jail.sh create --name web01 --interface re0 --bootstrap-pkg --packages "bash curl tmux"
+sudo ./scripts/manage-dfly-jail.sh create --name web01 --bootstrap-pkg --packages "bash curl tmux"
 sudo ./scripts/manage-dfly-jail.sh status --name web01
 sudo ./scripts/manage-dfly-jail.sh destroy --name web01
 ```
