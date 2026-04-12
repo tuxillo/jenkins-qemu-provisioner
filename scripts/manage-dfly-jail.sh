@@ -1192,12 +1192,15 @@ command_status() {
 
 command_list() {
   local name jid mode iface rootdir hostname loopback_ip service_ip fstab
+  local -a records=()
   validate_managed_state
-  if ! managed_jail_records | grep -q .; then
+  mapfile -t records < <(managed_jail_records)
+  if [ ${#records[@]} -eq 0 ]; then
     log "no managed jails found"
     return 0
   fi
-  while IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab; do
+  for record in "${records[@]}"; do
+    IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab <<<"$record"
     [ -n "$name" ] || continue
     JAIL_NAME=$name
     JAIL_ROOT=$rootdir
@@ -1216,7 +1219,7 @@ command_list() {
       printf '\tservice_ip=%s' "$service_ip"
     fi
     printf '\n'
-  done < <(managed_jail_records)
+  done
 }
 
 command_verify() {
