@@ -310,12 +310,7 @@ replace_managed_block() {
     $0 == end { skip = 0; next }
     !skip { print }
   ' "$file" > "$tmp"
-  {
-    cat "$tmp"
-    printf '\n# BEGIN %s\n' "$tag"
-    printf '%s\n' "$content"
-    printf '# END %s\n' "$tag"
-  } > "${tmp}.new"
+  normalize_managed_file "$tmp" "$tag" "$content" > "${tmp}.new"
   if [ "$DRY_RUN" = "1" ]; then
     log "would replace managed block $tag in $file"
     sed -n '1,240p' "${tmp}.new"
@@ -326,9 +321,36 @@ replace_managed_block() {
   rm -f "$tmp" "${tmp}.new"
 }
 
+normalize_managed_file() {
+  local source_file=$1 tag=${2:-} content=${3:-} tmp_output
+  tmp_output=$(mktemp)
+  {
+    cat "$source_file"
+    if [ -n "$content" ]; then
+      if [ -s "$source_file" ]; then
+        printf '\n'
+      fi
+      printf '# BEGIN %s\n' "$tag"
+      printf '%s\n' "$content"
+      printf '# END %s\n' "$tag"
+    fi
+  } | awk '
+    BEGIN { blank = 0; emitted = 0 }
+    /^[[:space:]]*$/ {
+      if (emitted && !blank) {
+        print ""
+        blank = 1
+      }
+      next
+    }
+    { print; blank = 0; emitted = 1 }
+  ' > "$tmp_output"
+  cat "$tmp_output"
+  rm -f "$tmp_output"
+}
+
 remove_managed_blocks_for_name() {
   local file=$1 name=$2 tmp current legacy
-  local changed=0
   current=$(current_tag "$name")
   legacy=$(legacy_tag "$name")
   tmp=$(mktemp)
@@ -344,12 +366,14 @@ remove_managed_blocks_for_name() {
   fi
   if [ "$DRY_RUN" = "1" ]; then
     log "would remove managed blocks for $name from $file"
-    sed -n '1,240p' "$tmp"
+    normalize_managed_file "$tmp" | sed -n '1,240p'
     rm -f "$tmp"
     return 0
   fi
-  cp "$tmp" "$file"
+  normalize_managed_file "$tmp" > "${tmp}.new"
+  cp "${tmp}.new" "$file"
   rm -f "$tmp"
+  rm -f "${tmp}.new"
 }
 
 set_root_fstab_line() {
@@ -520,7 +544,11 @@ managed_network_content() {
 rebuild_managed_network_block() {
   local content
   content=$(managed_network_content)
-  replace_managed_block "$RC_CONF_PATH" "$(network_tag)" "$content"
+  if [ -n "$content" ]; then
+    replace_managed_block "$RC_CONF_PATH" "$(network_tag)" "$content"
+  else
+    remove_managed_blocks_for_name "$RC_CONF_PATH" network
+  fi
 }
 
 iface_has_ipv4() {
