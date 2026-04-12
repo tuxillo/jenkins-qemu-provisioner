@@ -518,10 +518,11 @@ managed_jail_records() {
       jail_*_fstab=*)
         fstab=${line#*\"}
         fstab=${fstab%%\"*}
-        continue
+      continue
         ;;
     esac
   done < "$RC_CONF_PATH"
+  return 0
 }
 
 managed_jail_record_by_name() {
