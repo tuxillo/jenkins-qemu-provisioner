@@ -377,6 +377,7 @@ managed_jail_names() {
   [ -f "$RC_CONF_PATH" ] || return 0
   grep -E '^# BEGIN (dfly-jail-manager|dfly-jail-provisioner):' "$RC_CONF_PATH" \
     | sed -E 's/^# BEGIN (dfly-jail-manager|dfly-jail-provisioner)://g' \
+    | grep -Ev '^network$' \
     | sort -u
 }
 

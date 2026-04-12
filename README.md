@@ -108,6 +108,7 @@ Prerequisites:
 - Run it on a DragonFly BSD host as `root`.
 - Ensure the jail parent path, by default `/build/jails`, is on a mounted HAMMER2 filesystem.
 - Ensure the host has `/usr/local/bin/bash` installed, since the manager script itself is Bash.
+- Run the script directly or with Bash, not with `sh`.
 - Ensure the host can reach `https://avalon.dragonflybsd.org/snapshots/x86_64/assets/releases/` unless you override the release URL or use a populated cache.
 
 What `create` does:
