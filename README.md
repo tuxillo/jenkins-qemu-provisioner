@@ -84,17 +84,20 @@ make test
 
 ## DragonFly jail helper
 
-- `deploy/provision-dfly-jail.sh` prepares a DragonFly jail root from the latest published `world` artifact.
+- `scripts/manage-dfly-jail.sh` manages DragonFly jails backed by HAMMER2 PFSes and published `world` artifacts.
 - It is intended to run on a DragonFly host as root.
-- It requires `/build/jails` or another chosen parent path to live on a mounted HAMMER2 filesystem.
-- It creates one HAMMER2 PFS per jail, mounts it, persists the jail root mount in `/etc/fstab.<name>`, extracts the latest `DragonFly-x86_64-*.world.tar.gz`, and writes host `/etc/rc.conf` jail entries.
+- It supports `create`, `destroy`, `start`, `stop`, `status`, and `list` subcommands.
+- `create` requires `/build/jails` or another chosen parent path to live on a mounted HAMMER2 filesystem.
+- Managed jail roots are mounted via `/etc/fstab.<name>`, while host jail configuration is written to `/etc/rc.conf`.
 - By default it caches downloaded world artifacts in `/var/cache/dfly-jails` and keeps the latest three verified artifacts.
-- It also writes minimal jail-local `etc/rc.conf` and `etc/resolv.conf` and can optionally bootstrap `pkg` plus install packages.
+- It can optionally bootstrap `pkg` plus install packages inside the prepared jail root during `create`.
 
-Example:
+Examples:
 
 ```bash
-sudo ./deploy/provision-dfly-jail.sh --name web01 --interface em0 --bootstrap-pkg --packages "bash curl tmux"
+sudo ./scripts/manage-dfly-jail.sh create --name web01 --interface re0 --bootstrap-pkg --packages "bash curl tmux"
+sudo ./scripts/manage-dfly-jail.sh status --name web01
+sudo ./scripts/manage-dfly-jail.sh destroy --name web01
 ```
 
 ## Task tracking
