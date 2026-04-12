@@ -496,23 +496,23 @@ managed_jail_records() {
       next
     }
     $1 ~ /^jail_.*_rootdir=/ {
-      match($0, /="([^"]+)"/, m)
-      rootdir = m[1]
+      split($0, q, "\"")
+      rootdir = q[2]
       next
     }
     $1 ~ /^jail_.*_hostname=/ {
-      match($0, /="([^"]+)"/, m)
-      hostname = m[1]
+      split($0, q, "\"")
+      hostname = q[2]
       next
     }
     $1 ~ /^jail_.*_ip=/ {
-      match($0, /="([^"]+)"/, m)
-      ip_pair = m[1]
+      split($0, q, "\"")
+      ip_pair = q[2]
       next
     }
     $1 ~ /^jail_.*_fstab=/ {
-      match($0, /="([^"]+)"/, m)
-      fstab = m[1]
+      split($0, q, "\"")
+      fstab = q[2]
       next
     }
   ' "$RC_CONF_PATH"
