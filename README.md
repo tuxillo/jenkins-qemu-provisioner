@@ -99,7 +99,10 @@ make test
 - It supports `create`, `destroy`, `start`, `stop`, `status`, and `list` subcommands.
 - `create` requires `/build/jails` or another chosen parent path to live on a mounted HAMMER2 filesystem.
 - Managed jail roots are mounted via `/etc/fstab.<name>`, while host jail configuration is written to `/etc/rc.conf`.
-- It uses a shared private jail subnet on `lo1` by default and regenerates manager-owned `lo0`/`lo1` alias configuration in `/etc/rc.conf` for all managed jails.
+- It supports two network modes:
+  - `private-loopback` (default): shared private subnet on `lo1`
+  - `interface-alias`: jail service IP is added directly to a chosen host interface
+- It regenerates manager-owned alias configuration in `/etc/rc.conf` for all managed jails.
 - By default it caches downloaded world artifacts in `/var/cache/dfly-jails` and keeps the latest three verified artifacts.
 - It can optionally bootstrap `pkg` plus install packages inside the prepared jail root during `create`.
 
@@ -120,7 +123,7 @@ What `create` does:
 - Writes jail-local `etc/rc.conf` and `etc/resolv.conf`.
 - Writes host jail configuration to `/etc/rc.conf`.
 - Writes the jail root mount to `/etc/fstab.<name>`.
-- Ensures the private jail network aliases exist live on `lo0` and `lo1`.
+- Ensures the required jail network aliases exist live on the host interfaces selected by the jail's network mode.
 - Optionally bootstraps `pkg` and installs packages inside the jail root.
 
 Basic workflow:
@@ -131,6 +134,18 @@ sudo service jail start web01
 sudo ./scripts/manage-dfly-jail.sh status --name web01
 sudo ./scripts/manage-dfly-jail.sh stop --name web01
 sudo ./scripts/manage-dfly-jail.sh destroy --name web01
+```
+
+Interface-alias workflow:
+
+```bash
+sudo ./scripts/manage-dfly-jail.sh create \
+  --name web02 \
+  --network-mode interface-alias \
+  --service-iface re0 \
+  --service-ip 192.168.5.50
+sudo service jail start web02
+sudo ./scripts/manage-dfly-jail.sh status --name web02
 ```
 
 Useful commands:
@@ -154,6 +169,16 @@ Default network model:
   - `lo1` for the shared private jail subnet, with `10.200.0.1/24` as the host-side address by default
 - The manager writes a dedicated `dfly-jail-manager:network` block into `/etc/rc.conf` to own those aliases.
 - Host-local traffic between the host and jails should work without PF. Internet access from the jail requires host NAT/firewall configuration.
+
+Alternative `interface-alias` mode:
+
+- Still uses `lo0` for the jail-local `127.0.0.X` address.
+- Adds the service IP directly to a real host interface such as `re0`.
+- Requires both:
+  - `--service-iface`
+  - `--service-ip`
+- Does not auto-allocate the service IP. You must choose an address that is valid for that interface and subnet.
+- Does not require PF/NAT just to reach the LAN, though host firewall policy still applies.
 
 Expected `rc.conf` network block:
 
@@ -224,6 +249,7 @@ Notes:
 
 - `service jail` on DragonFly does not support a `status` subcommand. Use `jls` and `./scripts/manage-dfly-jail.sh status --name <name>` instead.
 - The manager no longer relies on `jail_<name>_interface`, because DragonFly `rc.d/jail` cannot correctly alias a comma-separated dual-IP jail definition.
+- `interface-alias` mode requires an explicit `--service-ip`; this is deliberate so the script does not guess addresses on a real network.
 - The PF example above is intentionally minimal. Add explicit `rdr` rules later if you want inbound host or LAN traffic forwarded to a jail service.
 - The shared artifact cache is not per-jail. Destroying a jail does not clear `/var/cache/dfly-jails`.
 

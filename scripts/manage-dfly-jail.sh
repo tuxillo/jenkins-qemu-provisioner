@@ -8,6 +8,8 @@ LOOPBACK_SUBNET=${LOOPBACK_SUBNET:-127.0.0.0/24}
 PRIVATE_IFACE=${PRIVATE_IFACE:-lo1}
 LOOPBACK_IFACE=${LOOPBACK_IFACE:-lo0}
 LOOPBACK_ALIAS_MASK=${LOOPBACK_ALIAS_MASK:-0xff000000}
+NETWORK_MODE=${NETWORK_MODE:-private-loopback}
+SERVICE_IFACE=${SERVICE_IFACE:-}
 RC_CONF_PATH=${RC_CONF_PATH:-/etc/rc.conf}
 CACHE_DIR=${CACHE_DIR:-/var/cache/dfly-jails}
 CACHE_KEEP=${CACHE_KEEP:-3}
@@ -53,7 +55,9 @@ Global options:
 Create options:
   --name NAME                 Jail name / HAMMER2 PFS label (required)
   --hostname HOSTNAME         Jail hostname (default: NAME)
-  --interface IFACE           Deprecated; ignored for private-subnet jails
+  --interface IFACE           Deprecated alias for --service-iface
+  --network-mode MODE         private-loopback or interface-alias (default: private-loopback)
+  --service-iface IFACE       Real interface for interface-alias mode
   --root-parent PATH          Parent directory on mounted HAMMER2 fs (default: /build/jails)
   --cache-dir PATH            Local world artifact cache directory (default: /var/cache/dfly-jails)
   --cache-keep N              Number of cached world artifacts to keep (default: 3)
@@ -77,6 +81,7 @@ Other command options:
 
 Examples:
   scripts/manage-dfly-jail.sh create --name web01 --bootstrap-pkg --packages "bash curl tmux"
+  scripts/manage-dfly-jail.sh create --name web02 --network-mode interface-alias --service-iface re0 --service-ip 192.168.5.50
   scripts/manage-dfly-jail.sh status --name web01
   scripts/manage-dfly-jail.sh destroy --name web01
 EOF
@@ -119,6 +124,20 @@ legacy_tag() {
 
 network_tag() {
   printf '%s:network\n' "$TAG_PREFIX"
+}
+
+normalize_network_mode() {
+  case "$1" in
+    private-loopback|interface-alias)
+      printf '%s\n' "$1"
+      ;;
+    "")
+      printf 'private-loopback\n'
+      ;;
+    *)
+      die "unknown network mode: $1"
+      ;;
+  esac
 }
 
 current_root_marker() {
@@ -387,6 +406,25 @@ rc_conf_value() {
   awk -F'"' -v key="$key" '$1 == key"=" { print $2; exit }' "$RC_CONF_PATH"
 }
 
+managed_block_metadata() {
+  local name=$1 key=$2 current legacy
+  current=$(current_tag "$name")
+  legacy=$(legacy_tag "$name")
+  [ -f "$RC_CONF_PATH" ] || return 1
+  awk -v cbegin="# BEGIN ${current}" -v cend="# END ${current}" -v lbegin="# BEGIN ${legacy}" -v lend="# END ${legacy}" -v key="# ${key}=" '
+    $0 == cbegin || $0 == lbegin { in_block = 1; next }
+    $0 == cend || $0 == lend { in_block = 0; next }
+    in_block && index($0, key) == 1 { print substr($0, length(key) + 1); exit }
+  ' "$RC_CONF_PATH"
+}
+
+service_iface_mask_hex() {
+  local iface=$1 mask
+  mask=$(ifconfig "$iface" 2>/dev/null | awk '/^[[:space:]]*inet / { for (i = 1; i <= NF; i++) if ($i == "netmask") { print $(i + 1); exit } }')
+  [ -n "$mask" ] || die "could not determine IPv4 netmask for interface $iface"
+  printf '%s\n' "$mask"
+}
+
 resolve_existing_config() {
   JAIL_ROOT=$(rc_conf_value "jail_${JAIL_NAME}_rootdir" || true)
   JAIL_HOSTNAME=$(rc_conf_value "jail_${JAIL_NAME}_hostname" || true)
@@ -400,11 +438,21 @@ resolve_existing_config() {
   if [ -n "$ip_pair" ]; then
     IFS=, read -r JAIL_LOOPBACK_IP JAIL_SERVICE_IP <<<"$ip_pair"
   fi
+  NETWORK_MODE=$(normalize_network_mode "$(managed_block_metadata "$JAIL_NAME" network_mode || true)")
+  SERVICE_IFACE=$(managed_block_metadata "$JAIL_NAME" service_iface || true)
+  if [ -z "$SERVICE_IFACE" ]; then
+    if [ "$NETWORK_MODE" = "private-loopback" ]; then
+      SERVICE_IFACE=$PRIVATE_IFACE
+    elif [ -n "$JAIL_INTERFACE" ]; then
+      SERVICE_IFACE=$JAIL_INTERFACE
+    fi
+  fi
 }
 
 managed_network_content() {
-  local name index=0 content="" private_gateway private_mask loopback_mask
-  local saved_name saved_root saved_host saved_iface saved_service_ip saved_loopback_ip saved_fstab
+  local name content="" loopback_mask private_gateway private_mask mode iface service_mask
+  local saved_name saved_root saved_host saved_iface saved_service_ip saved_loopback_ip saved_fstab saved_mode saved_service_iface
+  local -A alias_indexes=()
   saved_name=$JAIL_NAME
   saved_root=$JAIL_ROOT
   saved_host=$JAIL_HOSTNAME
@@ -412,27 +460,48 @@ managed_network_content() {
   saved_service_ip=$JAIL_SERVICE_IP
   saved_loopback_ip=$JAIL_LOOPBACK_IP
   saved_fstab=$JAIL_FSTAB_PATH
+  saved_mode=$NETWORK_MODE
+  saved_service_iface=$SERVICE_IFACE
   private_gateway=$(cidr_first_host_ip "$SERVICE_SUBNET")
   private_mask=$(cidr_netmask_hex "$SERVICE_SUBNET")
   loopback_mask=$LOOPBACK_ALIAS_MASK
-
-  if [ "$PRIVATE_IFACE" != "$LOOPBACK_IFACE" ]; then
-    content+='cloned_interfaces="${cloned_interfaces:+${cloned_interfaces} }'
-    content+="${PRIVATE_IFACE}"
-    content+='"'
-    content+=$'\n'
-    content+="ifconfig_${PRIVATE_IFACE}=\"inet ${private_gateway} netmask ${private_mask}\""$'\n'
-  fi
 
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     JAIL_NAME=$name
     resolve_existing_config
+    mode=$(normalize_network_mode "$NETWORK_MODE")
+    iface=$SERVICE_IFACE
     [ -n "$JAIL_LOOPBACK_IP" ] || continue
     [ -n "$JAIL_SERVICE_IP" ] || continue
-    content+="ifconfig_${LOOPBACK_IFACE}_alias${index}=\"inet ${JAIL_LOOPBACK_IP} netmask ${loopback_mask}\""$'\n'
-    content+="ifconfig_${PRIVATE_IFACE}_alias${index}=\"inet ${JAIL_SERVICE_IP} netmask ${private_mask}\""$'\n'
-    index=$((index + 1))
+
+    if [ -z "${alias_indexes[$LOOPBACK_IFACE]:-}" ]; then
+      alias_indexes[$LOOPBACK_IFACE]=0
+    fi
+    content+="ifconfig_${LOOPBACK_IFACE}_alias${alias_indexes[$LOOPBACK_IFACE]}=\"inet ${JAIL_LOOPBACK_IP} netmask ${loopback_mask}\""$'\n'
+    alias_indexes[$LOOPBACK_IFACE]=$((alias_indexes[$LOOPBACK_IFACE] + 1))
+
+    case "$mode" in
+      private-loopback)
+        if [ "$PRIVATE_IFACE" != "$LOOPBACK_IFACE" ] && [[ "$content" != *"ifconfig_${PRIVATE_IFACE}=\"inet ${private_gateway} netmask ${private_mask}\""* ]]; then
+          content="cloned_interfaces=\"\${cloned_interfaces:+\${cloned_interfaces} }${PRIVATE_IFACE}\""$'\n'"ifconfig_${PRIVATE_IFACE}=\"inet ${private_gateway} netmask ${private_mask}\""$'\n'"$content"
+        fi
+        if [ -z "${alias_indexes[$PRIVATE_IFACE]:-}" ]; then
+          alias_indexes[$PRIVATE_IFACE]=0
+        fi
+        content+="ifconfig_${PRIVATE_IFACE}_alias${alias_indexes[$PRIVATE_IFACE]}=\"inet ${JAIL_SERVICE_IP} netmask ${private_mask}\""$'\n'
+        alias_indexes[$PRIVATE_IFACE]=$((alias_indexes[$PRIVATE_IFACE] + 1))
+        ;;
+      interface-alias)
+        [ -n "$iface" ] || die "missing service interface metadata for jail $JAIL_NAME"
+        service_mask=$(service_iface_mask_hex "$iface")
+        if [ -z "${alias_indexes[$iface]:-}" ]; then
+          alias_indexes[$iface]=0
+        fi
+        content+="ifconfig_${iface}_alias${alias_indexes[$iface]}=\"inet ${JAIL_SERVICE_IP} netmask ${service_mask}\""$'\n'
+        alias_indexes[$iface]=$((alias_indexes[$iface] + 1))
+        ;;
+    esac
   done < <(managed_jail_names)
 
   JAIL_NAME=$saved_name
@@ -442,6 +511,8 @@ managed_network_content() {
   JAIL_SERVICE_IP=$saved_service_ip
   JAIL_LOOPBACK_IP=$saved_loopback_ip
   JAIL_FSTAB_PATH=$saved_fstab
+  NETWORK_MODE=$saved_mode
+  SERVICE_IFACE=$saved_service_iface
 
   printf '%s' "$content"
 }
@@ -486,17 +557,39 @@ remove_alias_live() {
 }
 
 ensure_runtime_network_for_jail() {
-  local private_mask loopback_mask
-  private_mask=$(cidr_netmask_hex "$SERVICE_SUBNET")
+  local mode effective_service_iface private_mask loopback_mask service_mask
+  mode=$(normalize_network_mode "$NETWORK_MODE")
+  effective_service_iface=$SERVICE_IFACE
   loopback_mask=$LOOPBACK_ALIAS_MASK
-  ensure_private_iface_live
   ensure_alias_live "$LOOPBACK_IFACE" "$JAIL_LOOPBACK_IP" "$loopback_mask"
-  ensure_alias_live "$PRIVATE_IFACE" "$JAIL_SERVICE_IP" "$private_mask"
+  case "$mode" in
+    private-loopback)
+      ensure_private_iface_live
+      private_mask=$(cidr_netmask_hex "$SERVICE_SUBNET")
+      ensure_alias_live "$PRIVATE_IFACE" "$JAIL_SERVICE_IP" "$private_mask"
+      ;;
+    interface-alias)
+      [ -n "$effective_service_iface" ] || die "interface-alias mode requires a service interface"
+      service_mask=$(service_iface_mask_hex "$effective_service_iface")
+      ensure_alias_live "$effective_service_iface" "$JAIL_SERVICE_IP" "$service_mask"
+      ;;
+  esac
 }
 
 remove_runtime_network_for_jail() {
+  local mode effective_service_iface
+  mode=$(normalize_network_mode "$NETWORK_MODE")
+  effective_service_iface=$SERVICE_IFACE
   remove_alias_live "$LOOPBACK_IFACE" "$JAIL_LOOPBACK_IP"
-  remove_alias_live "$PRIVATE_IFACE" "$JAIL_SERVICE_IP"
+  case "$mode" in
+    private-loopback)
+      remove_alias_live "$PRIVATE_IFACE" "$JAIL_SERVICE_IP"
+      ;;
+    interface-alias)
+      [ -n "$effective_service_iface" ] || return 0
+      remove_alias_live "$effective_service_iface" "$JAIL_SERVICE_IP"
+      ;;
+  esac
 }
 
 verify_cached_artifact() {
@@ -599,10 +692,16 @@ EOF
 }
 
 write_host_rc_conf() {
-  local content tag
+  local content tag effective_service_iface
   tag=$(current_tag "$JAIL_NAME")
   remove_managed_blocks_for_name "$RC_CONF_PATH" "$JAIL_NAME"
+  effective_service_iface=$SERVICE_IFACE
+  if [ -z "$effective_service_iface" ] && [ "$NETWORK_MODE" = "private-loopback" ]; then
+    effective_service_iface=$PRIVATE_IFACE
+  fi
   content=$(cat <<EOF
+# network_mode=${NETWORK_MODE}
+# service_iface=${effective_service_iface}
 jail_enable="YES"
 jail_list="\${jail_list:+\${jail_list} }${JAIL_NAME}"
 jail_${JAIL_NAME}_rootdir="${JAIL_ROOT}"
@@ -744,8 +843,12 @@ running_jid() {
 
 command_create() {
   [ -n "$JAIL_NAME" ] || die "create requires --name"
+  NETWORK_MODE=$(normalize_network_mode "$NETWORK_MODE")
   if [ -n "$JAIL_INTERFACE" ]; then
-    warn "--interface is deprecated and ignored for private-subnet jails"
+    warn "--interface is deprecated; use --service-iface instead"
+    if [ -z "$SERVICE_IFACE" ]; then
+      SERVICE_IFACE=$JAIL_INTERFACE
+    fi
   fi
   if [ -z "$JAIL_HOSTNAME" ]; then
     JAIL_HOSTNAME=$JAIL_NAME
@@ -763,9 +866,20 @@ command_create() {
   if ! ip_in_use "$JAIL_LOOPBACK_IP"; then
     USED_IPS+=("$JAIL_LOOPBACK_IP")
   fi
-  if [ -z "$JAIL_SERVICE_IP" ]; then
-    JAIL_SERVICE_IP=$(allocate_ip_from_cidr "$SERVICE_SUBNET" 2)
-  fi
+  case "$NETWORK_MODE" in
+    private-loopback)
+      if [ -z "$JAIL_SERVICE_IP" ]; then
+        JAIL_SERVICE_IP=$(allocate_ip_from_cidr "$SERVICE_SUBNET" 2)
+      fi
+      if [ -z "$SERVICE_IFACE" ]; then
+        SERVICE_IFACE=$PRIVATE_IFACE
+      fi
+      ;;
+    interface-alias)
+      [ -n "$SERVICE_IFACE" ] || die "interface-alias mode requires --service-iface"
+      [ -n "$JAIL_SERVICE_IP" ] || die "interface-alias mode requires --service-ip"
+      ;;
+  esac
   [ "$JAIL_SERVICE_IP" != "$JAIL_LOOPBACK_IP" ] || die "service and loopback IPs must be different"
   ensure_jail_pfs
   download_and_extract_world
@@ -788,11 +902,14 @@ command_create() {
   fi
   log "loopback ip: ${JAIL_LOOPBACK_IP}"
   log "service ip: ${JAIL_SERVICE_IP}"
-  log "private iface: ${PRIVATE_IFACE}"
+  log "network mode: ${NETWORK_MODE}"
+  log "service iface: ${SERVICE_IFACE}"
   log "rc.conf block tag: $(current_tag "$JAIL_NAME")"
   log "jail fstab: ${JAIL_FSTAB_PATH}"
   log "fstab marker: $(current_root_marker "$JAIL_NAME")"
-  warn "private-subnet aliases are configured on ${LOOPBACK_IFACE}/${PRIVATE_IFACE}; outbound Internet still requires separate PF/NAT host configuration"
+  if [ "$NETWORK_MODE" = "private-loopback" ]; then
+    warn "private-subnet aliases are configured on ${LOOPBACK_IFACE}/${PRIVATE_IFACE}; outbound Internet still requires separate PF/NAT host configuration"
+  fi
   if ! grep -Eq '^jail_default_allow_listen_override="YES"' "$RC_CONF_PATH" 2>/dev/null; then
     warn "jail_default_allow_listen_override is not set to YES in $RC_CONF_PATH; jailed listeners may conflict with host wildcard listeners"
   fi
@@ -865,11 +982,14 @@ command_status() {
   if [ -n "$JAIL_ROOT" ]; then
     log "root: ${JAIL_ROOT}"
     log "hostname: ${JAIL_HOSTNAME}"
+    log "network mode: ${NETWORK_MODE}"
     log "loopback ip: ${JAIL_LOOPBACK_IP}"
     log "service ip: ${JAIL_SERVICE_IP}"
-    log "private iface: ${PRIVATE_IFACE}"
+    log "service iface: ${SERVICE_IFACE}"
     log "jail fstab: ${JAIL_FSTAB_PATH}"
-    log "external egress: requires separate PF/NAT host configuration"
+    if [ "$NETWORK_MODE" = "private-loopback" ]; then
+      log "external egress: requires separate PF/NAT host configuration"
+    fi
   fi
   log "root mounted: ${mounted}"
   if [ -n "$mounted_special" ]; then
@@ -888,12 +1008,18 @@ command_list() {
     JAIL_NAME=$name
     resolve_existing_config
     jid=$(running_jid || true)
-    printf '%s\tconfigured=%s\trunning=%s' "$name" yes "$([ -n "$jid" ] && printf yes || printf no)"
+    printf '%s\tconfigured=%s\trunning=%s\tmode=%s' "$name" yes "$([ -n "$jid" ] && printf yes || printf no)" "$NETWORK_MODE"
     if [ -n "$jid" ]; then
       printf '\tjid=%s' "$jid"
     fi
     if [ -n "$JAIL_ROOT" ]; then
       printf '\troot=%s' "$JAIL_ROOT"
+    fi
+    if [ -n "$SERVICE_IFACE" ]; then
+      printf '\tservice_iface=%s' "$SERVICE_IFACE"
+    fi
+    if [ -n "$JAIL_SERVICE_IP" ]; then
+      printf '\tservice_ip=%s' "$JAIL_SERVICE_IP"
     fi
     printf '\n'
   done < <(managed_jail_names)
@@ -931,6 +1057,14 @@ parse_create_flags() {
         ;;
       --interface)
         JAIL_INTERFACE=$2
+        shift 2
+        ;;
+      --network-mode)
+        NETWORK_MODE=$2
+        shift 2
+        ;;
+      --service-iface)
+        SERVICE_IFACE=$2
         shift 2
         ;;
       --root-parent)
