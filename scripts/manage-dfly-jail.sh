@@ -7,6 +7,7 @@ SERVICE_SUBNET=${SERVICE_SUBNET:-10.200.0.0/24}
 LOOPBACK_SUBNET=${LOOPBACK_SUBNET:-127.0.0.0/24}
 PRIVATE_IFACE=${PRIVATE_IFACE:-lo1}
 LOOPBACK_IFACE=${LOOPBACK_IFACE:-lo0}
+LOOPBACK_ALIAS_MASK=${LOOPBACK_ALIAS_MASK:-0xff000000}
 RC_CONF_PATH=${RC_CONF_PATH:-/etc/rc.conf}
 CACHE_DIR=${CACHE_DIR:-/var/cache/dfly-jails}
 CACHE_KEEP=${CACHE_KEEP:-3}
@@ -164,14 +165,28 @@ cidr_prefix() {
   printf '%s\n' "${1#*/}"
 }
 
-cidr_network_ip() {
-  int_to_ip "$(cidr_network_int "$1")"
+increment_ipv4() {
+  local ip=$1 a b c d
+  IFS=. read -r a b c d <<<"$ip"
+  d=$((d + 1))
+  if [ "$d" -gt 255 ]; then
+    d=0
+    c=$((c + 1))
+  fi
+  if [ "$c" -gt 255 ]; then
+    c=0
+    b=$((b + 1))
+  fi
+  if [ "$b" -gt 255 ]; then
+    b=0
+    a=$((a + 1))
+  fi
+  [ "$a" -le 255 ] || die "IPv4 increment overflow for $ip"
+  printf '%s.%s.%s.%s\n' "$a" "$b" "$c" "$d"
 }
 
 cidr_first_host_ip() {
-  local network_int
-  network_int=$(cidr_network_int "$1")
-  int_to_ip $((network_int + 1))
+  increment_ipv4 "${1%/*}"
 }
 
 cidr_netmask_hex() {
@@ -398,10 +413,13 @@ managed_network_content() {
   saved_fstab=$JAIL_FSTAB_PATH
   private_gateway=$(cidr_first_host_ip "$SERVICE_SUBNET")
   private_mask=$(cidr_netmask_hex "$SERVICE_SUBNET")
-  loopback_mask=$(cidr_netmask_hex "$LOOPBACK_SUBNET")
+  loopback_mask=$LOOPBACK_ALIAS_MASK
 
   if [ "$PRIVATE_IFACE" != "$LOOPBACK_IFACE" ]; then
-    content+="cloned_interfaces=\"\\${cloned_interfaces:+\\${cloned_interfaces} }${PRIVATE_IFACE}\""$'\n'
+    content+='cloned_interfaces="${cloned_interfaces:+${cloned_interfaces} }'
+    content+="${PRIVATE_IFACE}"
+    content+='"'
+    content+=$'\n'
     content+="ifconfig_${PRIVATE_IFACE}=\"inet ${private_gateway} netmask ${private_mask}\""$'\n'
   fi
 
@@ -469,7 +487,7 @@ remove_alias_live() {
 ensure_runtime_network_for_jail() {
   local private_mask loopback_mask
   private_mask=$(cidr_netmask_hex "$SERVICE_SUBNET")
-  loopback_mask=$(cidr_netmask_hex "$LOOPBACK_SUBNET")
+  loopback_mask=$LOOPBACK_ALIAS_MASK
   ensure_private_iface_live
   ensure_alias_live "$LOOPBACK_IFACE" "$JAIL_LOOPBACK_IP" "$loopback_mask"
   ensure_alias_live "$PRIVATE_IFACE" "$JAIL_SERVICE_IP" "$private_mask"
