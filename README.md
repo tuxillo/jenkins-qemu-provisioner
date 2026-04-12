@@ -183,9 +183,9 @@ Example `/etc/pf.conf`:
 ext_if = "re0"
 jail_net = "10.200.0.0/24"
 
-set skip on lo
+set skip on { lo0 lo1 }
 
-match out on $ext_if inet from $jail_net to any nat-to ($ext_if)
+nat on $ext_if inet from $jail_net to any -> ($ext_if)
 
 pass quick on lo1 from $jail_net to 10.200.0.1 keep state
 pass out all keep state
