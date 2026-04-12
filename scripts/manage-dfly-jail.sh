@@ -457,70 +457,85 @@ backup_file_if_exists() {
 
 managed_jail_records() {
   [ -f "$RC_CONF_PATH" ] || return 0
-  awk '
-    function emit_record() {
-      if (name == "" || name == "network") {
-        return
-      }
-      split(ip_pair, ips, ",")
-      loopback_ip = ips[1]
-      service_ip = ips[2]
-      print name "\t" network_mode "\t" service_iface "\t" rootdir "\t" hostname "\t" loopback_ip "\t" service_ip "\t" fstab
-    }
-    /^# BEGIN (dfly-jail-manager|dfly-jail-provisioner):/ {
-      emit_record()
-      in_block = 1
-      split($3, parts, ":")
-      name = parts[2]
-      network_mode = ""
-      service_iface = ""
-      rootdir = ""
-      hostname = ""
-      ip_pair = ""
-      fstab = ""
-      next
-    }
-    /^# END (dfly-jail-manager|dfly-jail-provisioner):/ {
-      emit_record()
-      in_block = 0
-      name = ""
-      next
-    }
-    !in_block { next }
-    /^# network_mode=/ {
-      network_mode = substr($0, length("# network_mode=") + 1)
-      next
-    }
-    /^# service_iface=/ {
-      service_iface = substr($0, length("# service_iface=") + 1)
-      next
-    }
-    $1 ~ /^jail_.*_rootdir=/ {
-      split($0, q, "\"")
-      rootdir = q[2]
-      next
-    }
-    $1 ~ /^jail_.*_hostname=/ {
-      split($0, q, "\"")
-      hostname = q[2]
-      next
-    }
-    $1 ~ /^jail_.*_ip=/ {
-      split($0, q, "\"")
-      ip_pair = q[2]
-      next
-    }
-    $1 ~ /^jail_.*_fstab=/ {
-      split($0, q, "\"")
-      fstab = q[2]
-      next
-    }
-  ' "$RC_CONF_PATH"
+  local line in_block=0 block_name="" network_mode="" service_iface="" rootdir="" hostname="" ip_pair="" fstab="" loopback_ip="" service_ip=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      '# BEGIN dfly-jail-manager:'*|'# BEGIN dfly-jail-provisioner:'*)
+      if [ "$in_block" = "1" ] && [ -n "$block_name" ] && [ "$block_name" != "network" ]; then
+        IFS=, read -r loopback_ip service_ip <<<"$ip_pair"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$block_name" "$network_mode" "$service_iface" "$rootdir" "$hostname" "$loopback_ip" "$service_ip" "$fstab"
+      fi
+      in_block=1
+      block_name=${line##*:}
+      network_mode=""
+      service_iface=""
+      rootdir=""
+      hostname=""
+      ip_pair=""
+      fstab=""
+      continue
+        ;;
+    esac
+
+    case "$line" in
+      '# END dfly-jail-manager:'*|'# END dfly-jail-provisioner:'*)
+      if [ "$in_block" = "1" ] && [ -n "$block_name" ] && [ "$block_name" != "network" ]; then
+        IFS=, read -r loopback_ip service_ip <<<"$ip_pair"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$block_name" "$network_mode" "$service_iface" "$rootdir" "$hostname" "$loopback_ip" "$service_ip" "$fstab"
+      fi
+      in_block=0
+      block_name=""
+      continue
+        ;;
+    esac
+
+    [ "$in_block" = "1" ] || continue
+
+    case "$line" in
+      '# network_mode='*)
+        network_mode=${line#'# network_mode='}
+        continue
+        ;;
+      '# service_iface='*)
+        service_iface=${line#'# service_iface='}
+        continue
+        ;;
+      jail_*_rootdir=*)
+        rootdir=${line#*\"}
+        rootdir=${rootdir%%\"*}
+        continue
+        ;;
+      jail_*_hostname=*)
+        hostname=${line#*\"}
+        hostname=${hostname%%\"*}
+        continue
+        ;;
+      jail_*_ip=*)
+        ip_pair=${line#*\"}
+        ip_pair=${ip_pair%%\"*}
+        continue
+        ;;
+      jail_*_fstab=*)
+        fstab=${line#*\"}
+        fstab=${fstab%%\"*}
+        continue
+        ;;
+    esac
+  done < "$RC_CONF_PATH"
 }
 
 managed_jail_record_by_name() {
   local name=$1
-  managed_jail_records | awk -F'\t' -v name="$name" '$1 == name { print; exit }'
+  local record record_name
+  while IFS= read -r record; do
+    [ -n "$record" ] || continue
+    IFS=$'\t' read -r record_name _rest <<<"$record"
+    if [ "$record_name" = "$name" ]; then
+      printf '%s\n' "$record"
+      return 0
+    fi
+  done < <(managed_jail_records)
+  return 1
 }
 
 validate_managed_state() {
