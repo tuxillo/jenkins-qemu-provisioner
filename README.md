@@ -93,13 +93,128 @@ make test
 - By default it caches downloaded world artifacts in `/var/cache/dfly-jails` and keeps the latest three verified artifacts.
 - It can optionally bootstrap `pkg` plus install packages inside the prepared jail root during `create`.
 
-Examples:
+Prerequisites:
+
+- Run it on a DragonFly BSD host as `root`.
+- Ensure the jail parent path, by default `/build/jails`, is on a mounted HAMMER2 filesystem.
+- Ensure the host has `/usr/local/bin/bash` installed, since the manager script itself is Bash.
+- Ensure the host can reach `https://avalon.dragonflybsd.org/snapshots/x86_64/assets/releases/` unless you override the release URL or use a populated cache.
+
+What `create` does:
+
+- Discovers the newest `DragonFly-x86_64-*.world.tar.gz` artifact.
+- Reuses a verified cached copy from `/var/cache/dfly-jails` when possible.
+- Creates a HAMMER2 PFS for the jail and mounts it at `/build/jails/<name>` by default.
+- Extracts the world tarball into the jail root.
+- Writes jail-local `etc/rc.conf` and `etc/resolv.conf`.
+- Writes host jail configuration to `/etc/rc.conf`.
+- Writes the jail root mount to `/etc/fstab.<name>`.
+- Ensures the private jail network aliases exist live on `lo0` and `lo1`.
+- Optionally bootstraps `pkg` and installs packages inside the jail root.
+
+Basic workflow:
 
 ```bash
 sudo ./scripts/manage-dfly-jail.sh create --name web01 --bootstrap-pkg --packages "bash curl tmux"
+sudo service jail start web01
 sudo ./scripts/manage-dfly-jail.sh status --name web01
+sudo ./scripts/manage-dfly-jail.sh stop --name web01
 sudo ./scripts/manage-dfly-jail.sh destroy --name web01
 ```
+
+Useful commands:
+
+```bash
+sudo ./scripts/manage-dfly-jail.sh list
+sudo ./scripts/manage-dfly-jail.sh create --dry-run --name web01
+sudo ./scripts/manage-dfly-jail.sh start --name web01
+sudo ./scripts/manage-dfly-jail.sh stop --name web01
+sudo ./scripts/manage-dfly-jail.sh status --name web01
+sudo jls
+```
+
+Default network model:
+
+- Each jail gets two IPs:
+  - a jail-local loopback address in `127.0.0.0/8`, allocated from the `127.0.0.0/24` pool by default
+  - a private service address in `10.200.0.0/24`
+- The host uses:
+  - `lo0` for jail-local loopback aliases like `127.0.0.2`
+  - `lo1` for the shared private jail subnet, with `10.200.0.1/24` as the host-side address by default
+- The manager writes a dedicated `dfly-jail-manager:network` block into `/etc/rc.conf` to own those aliases.
+- Host-local traffic between the host and jails should work without PF. Internet access from the jail requires host NAT/firewall configuration.
+
+Expected `rc.conf` network block:
+
+```sh
+# BEGIN dfly-jail-manager:network
+cloned_interfaces="${cloned_interfaces:+${cloned_interfaces} }lo1"
+ifconfig_lo1="inet 10.200.0.1 netmask 0xffffff00"
+ifconfig_lo0_alias0="inet 127.0.0.2 netmask 0xff000000"
+ifconfig_lo1_alias0="inet 10.200.0.2 netmask 0xffffff00"
+# END dfly-jail-manager:network
+```
+
+Verification after `create` and `service jail start <name>`:
+
+```bash
+sudo ./scripts/manage-dfly-jail.sh status --name web01
+ifconfig lo0
+ifconfig lo1
+jls
+jexec 7 ifconfig
+jexec 7 ping -c 1 10.200.0.1
+jexec 7 ping -c 1 127.0.0.1
+```
+
+The JID in the examples above is just an example. Use `jls` to find the actual JID.
+
+Minimal PF example for outbound jail Internet access:
+
+- This example assumes:
+  - the host uplink interface is `re0`
+  - jail traffic uses `10.200.0.0/24`
+  - you want outbound NAT only, not inbound port forwards yet
+- The host in our test setup had its default route on `re0`.
+
+Example `/etc/pf.conf`:
+
+```pf
+ext_if = "re0"
+jail_net = "10.200.0.0/24"
+
+set skip on lo
+
+match out on $ext_if inet from $jail_net to any nat-to ($ext_if)
+
+pass quick on lo1 from $jail_net to 10.200.0.1 keep state
+pass out all keep state
+```
+
+Then enable PF on the host:
+
+```sh
+sysrc pf_enable=YES
+service pf start
+pfctl -sr
+pfctl -sn
+```
+
+After PF/NAT is enabled, test from inside the jail:
+
+```bash
+jexec 7 ping -c 1 10.200.0.1
+jexec 7 ping -c 1 1.1.1.1
+jexec 7 fetch -qo - https://avalon.dragonflybsd.org/
+jexec 7 pkg update
+```
+
+Notes:
+
+- `service jail` on DragonFly does not support a `status` subcommand. Use `jls` and `./scripts/manage-dfly-jail.sh status --name <name>` instead.
+- The manager no longer relies on `jail_<name>_interface`, because DragonFly `rc.d/jail` cannot correctly alias a comma-separated dual-IP jail definition.
+- The PF example above is intentionally minimal. Add explicit `rdr` rules later if you want inbound host or LAN traffic forwarded to a jail service.
+- The shared artifact cache is not per-jail. Destroying a jail does not clear `/var/cache/dfly-jails`.
 
 ## Task tracking
 
