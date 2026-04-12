@@ -718,7 +718,17 @@ EOF
 
 collect_used_ips() {
   [ -f "$RC_CONF_PATH" ] || return 0
-  awk -F'"' '/^jail_.*_ip="/ { print $2 }' "$RC_CONF_PATH" | tr ',' '\n' | sed '/^[[:space:]]*$/d' | sort -u
+  awk -F'"' -v current="$JAIL_NAME" '$1 ~ /^jail_.*_ip=$/ { if ($1 != "jail_" current "_ip=") print $2 }' "$RC_CONF_PATH" | tr ',' '\n' | sed '/^[[:space:]]*$/d' | sort -u
+}
+
+prime_used_ips() {
+  local candidate_ip
+  USED_IPS=()
+  while IFS= read -r candidate_ip; do
+    if [ -n "$candidate_ip" ] && ! ip_in_use "$candidate_ip"; then
+      USED_IPS+=("$candidate_ip")
+    fi
+  done < <(collect_used_ips)
 }
 
 ip_in_use() {
@@ -740,11 +750,6 @@ allocate_ip_from_cidr() {
   size=$((1 << (32 - prefix)))
   first=$((network + skip_count))
   last=$((network + size - 2))
-  while IFS= read -r candidate_ip; do
-    if [ -n "$candidate_ip" ] && ! ip_in_use "$candidate_ip"; then
-      USED_IPS+=("$candidate_ip")
-    fi
-  done < <(collect_used_ips)
   for ((candidate_int = first; candidate_int <= last; candidate_int++)); do
     candidate_ip=$(int_to_ip "$candidate_int")
     if ! ip_in_use "$candidate_ip"; then
@@ -860,8 +865,11 @@ command_create() {
   if [ -z "$ARTIFACT_NAME" ]; then
     ARTIFACT_NAME=$(latest_world_artifact)
   fi
+  prime_used_ips
   if [ -z "$JAIL_LOOPBACK_IP" ]; then
     JAIL_LOOPBACK_IP=$(allocate_ip_from_cidr "$LOOPBACK_SUBNET" 2)
+  elif ip_in_use "$JAIL_LOOPBACK_IP"; then
+    die "loopback IP already in use by another jail: $JAIL_LOOPBACK_IP"
   fi
   if ! ip_in_use "$JAIL_LOOPBACK_IP"; then
     USED_IPS+=("$JAIL_LOOPBACK_IP")
@@ -870,6 +878,8 @@ command_create() {
     private-loopback)
       if [ -z "$JAIL_SERVICE_IP" ]; then
         JAIL_SERVICE_IP=$(allocate_ip_from_cidr "$SERVICE_SUBNET" 2)
+      elif ip_in_use "$JAIL_SERVICE_IP"; then
+        die "service IP already in use by another jail: $JAIL_SERVICE_IP"
       fi
       if [ -z "$SERVICE_IFACE" ]; then
         SERVICE_IFACE=$PRIVATE_IFACE
@@ -878,6 +888,9 @@ command_create() {
     interface-alias)
       [ -n "$SERVICE_IFACE" ] || die "interface-alias mode requires --service-iface"
       [ -n "$JAIL_SERVICE_IP" ] || die "interface-alias mode requires --service-ip"
+      if ip_in_use "$JAIL_SERVICE_IP"; then
+        die "service IP already in use by another jail: $JAIL_SERVICE_IP"
+      fi
       ;;
   esac
   [ "$JAIL_SERVICE_IP" != "$JAIL_LOOPBACK_IP" ] || die "service and loopback IPs must be different"
