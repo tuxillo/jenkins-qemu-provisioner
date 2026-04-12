@@ -194,7 +194,7 @@ pass out all keep state
 Then enable PF on the host:
 
 ```sh
-sysrc pf_enable=YES
+printf '\npf_enable="YES"\n' >> /etc/rc.conf
 service pf start
 pfctl -sr
 pfctl -sn
