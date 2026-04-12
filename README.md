@@ -2,6 +2,16 @@
 
 Lightweight control plane for running Jenkins builds on ephemeral QEMU VMs.
 
+## Index
+
+- [What this project does](#what-this-project-does)
+- [Core components](#core-components)
+- [Quick start (local)](#quick-start-local)
+- [Control-plane development](#control-plane-development)
+- [Design and ops docs](#design-and-ops-docs)
+- [DragonFly jail helper](#dragonfly-jail-helper)
+- [Task tracking](#task-tracking)
+
 ## What this project does
 
 - Jenkins is the scheduler only.
