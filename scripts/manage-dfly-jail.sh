@@ -722,29 +722,6 @@ iface_has_ipv4() {
   ifconfig "$iface" 2>/dev/null | grep -Eq "inet ${ip}([[:space:]]|$)"
 }
 
-iface_has_ipv4_alias() {
-  local iface=$1 ip=$2
-  ifconfig "$iface" 2>/dev/null | awk -v ip="$ip" '
-    /^[[:space:]]*inet / {
-      has_ip = 0
-      has_alias = 0
-      for (i = 1; i <= NF; i++) {
-        if ($i == "inet" && $(i + 1) == ip) {
-          has_ip = 1
-        }
-        if ($i == "alias") {
-          has_alias = 1
-        }
-      }
-      if (has_ip && has_alias) {
-        found = 1
-        exit
-      }
-    }
-    END { exit(found ? 0 : 1) }
-  '
-}
-
 host_iface_for_ipv4() {
   local ip=$1
   ifconfig -a | awk -v ip="$ip" '
@@ -762,6 +739,32 @@ host_iface_for_ipv4() {
       }
     }
   '
+}
+
+managed_network_has_ip_on_iface() {
+  local iface=$1 ip=$2 line in_block=0
+  [ -f "$RC_CONF_PATH" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "# BEGIN $(network_tag)")
+        in_block=1
+        continue
+        ;;
+      "# END $(network_tag)")
+        in_block=0
+        continue
+        ;;
+    esac
+    [ "$in_block" = "1" ] || continue
+    case "$line" in
+      ifconfig_"${iface}"_alias*=*)
+        if [[ "$line" == *"inet ${ip} "* ]]; then
+          return 0
+        fi
+        ;;
+    esac
+  done < "$RC_CONF_PATH"
+  return 1
 }
 
 assert_ip_not_configured_on_host() {
@@ -789,23 +792,37 @@ ensure_private_iface_live() {
 
 ensure_alias_live() {
   local iface=$1 ip=$2 mask=$3
-  if iface_has_ipv4 "$iface" "$ip"; then
-    if iface_has_ipv4_alias "$iface" "$ip"; then
+  local existing_iface
+  existing_iface=$(host_iface_for_ipv4 "$ip" || true)
+  if [ -n "$existing_iface" ]; then
+    if [ "$existing_iface" != "$iface" ]; then
+      die "refusing to manage ${ip} on ${iface}: address is already configured on ${existing_iface}"
+    fi
+    if managed_network_has_ip_on_iface "$iface" "$ip"; then
       return 0
     fi
-    die "refusing to manage ${ip} on ${iface}: address already exists on the host and is not an alias"
+    die "refusing to manage ${ip} on ${iface}: address exists but is not declared in the manager-owned network block"
   fi
   run_cmd ifconfig "$iface" alias "$ip" netmask "$mask"
 }
 
 remove_alias_live() {
   local iface=$1 ip=$2
-  if iface_has_ipv4_alias "$iface" "$ip"; then
-    run_cmd ifconfig "$iface" -alias "$ip"
+  local existing_iface
+  existing_iface=$(host_iface_for_ipv4 "$ip" || true)
+  if [ -z "$existing_iface" ]; then
     return 0
   fi
-  if iface_has_ipv4 "$iface" "$ip"; then
-    warn "not removing ${ip} from ${iface}: address exists but is not an alias"
+  if [ "$existing_iface" != "$iface" ]; then
+    warn "not removing ${ip} from ${iface}: address is configured on ${existing_iface}"
+    return 0
+  fi
+  if ! managed_network_has_ip_on_iface "$iface" "$ip"; then
+    warn "not removing ${ip} from ${iface}: address is not declared in the manager-owned network block"
+    return 0
+  fi
+  if ! run_cmd ifconfig "$iface" -alias "$ip"; then
+    warn "unable to remove ${ip} from ${iface}; address remained configured"
   fi
 }
 
