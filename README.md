@@ -98,6 +98,7 @@ make test
 - It is intended to run on a DragonFly host as root.
 - It supports `create`, `destroy`, `start`, `stop`, `status`, `list`, `verify`, and `rebuild-network` subcommands.
 - `create` requires `/build/jails` or another chosen parent path to live on a mounted HAMMER2 filesystem.
+- Jail names must use only letters, numbers, and underscores. The name `network` is reserved by the manager.
 - Managed jail roots are mounted via `/etc/fstab.<name>`, while host jail configuration is written to `/etc/rc.conf`.
 - It supports two network modes:
   - `private-loopback` (default): shared private subnet on `lo1`
@@ -125,6 +126,7 @@ What `create` does:
 - Writes host jail configuration to `/etc/rc.conf`.
 - Writes the jail root mount to `/etc/fstab.<name>`.
 - Ensures the required jail network aliases exist live on the host interfaces selected by the jail's network mode.
+- Refuses loopback or service IPs that are already configured on the host.
 - Optionally bootstraps `pkg` and installs packages inside the jail root.
 
 Basic workflow:
@@ -172,6 +174,7 @@ Default network model:
   - `lo0` for jail-local loopback aliases like `127.0.0.2`
   - `lo1` for the shared private jail subnet, with `10.200.0.1/24` as the host-side address by default
 - The manager writes a dedicated `dfly-jail-manager:network` block into `/etc/rc.conf` to own those aliases.
+- If you override `--private-iface`, that per-jail interface choice is preserved in the manager-owned metadata and used again by `start`, `destroy`, and `rebuild-network`.
 - Host-local traffic between the host and jails should work without PF. Internet access from the jail requires host NAT/firewall configuration.
 
 Alternative `interface-alias` mode:
@@ -254,6 +257,7 @@ Notes:
 - `service jail` on DragonFly does not support a `status` subcommand. Use `jls` and `./scripts/manage-dfly-jail.sh status --name <name>` instead.
 - The manager no longer relies on `jail_<name>_interface`, because DragonFly `rc.d/jail` cannot correctly alias a comma-separated dual-IP jail definition.
 - `interface-alias` mode requires an explicit `--service-ip`; this is deliberate so the script does not guess addresses on a real network.
+- `create` refuses to reuse an IP address that is already configured on the host, and `destroy` only removes addresses that are actually host aliases.
 - The PF example above is intentionally minimal. Add explicit `rdr` rules later if you want inbound host or LAN traffic forwarded to a jail service.
 - The shared artifact cache is not per-jail. Destroying a jail does not clear `/var/cache/dfly-jails`.
 - Use `verify` to check that manager-owned jail state in `/etc/rc.conf` is internally consistent. Use `rebuild-network` to regenerate only the `dfly-jail-manager:network` block from parsed jail metadata.
