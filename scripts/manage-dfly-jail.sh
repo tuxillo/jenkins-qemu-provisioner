@@ -143,6 +143,17 @@ normalize_network_mode() {
   esac
 }
 
+validate_jail_name() {
+  local name=$1
+  [ -n "$name" ] || die "jail name is required"
+  [ "$name" != "network" ] || die "jail name 'network' is reserved"
+  case "$name" in
+    *[!A-Za-z0-9_]*)
+      die "invalid jail name '$name': use only letters, numbers, and underscores"
+      ;;
+  esac
+}
+
 current_root_marker() {
   printf '# %s:root\n' "$(current_tag "$1")"
 }
@@ -544,6 +555,7 @@ validate_managed_state() {
   local line name mode iface rootdir hostname loopback_ip service_ip fstab
   while IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab; do
     [ -n "$name" ] || continue
+    validate_jail_name "$name"
     if [ -n "${seen_names[$name]:-}" ]; then
       die "duplicate managed jail block found for $name"
     fi
@@ -617,9 +629,10 @@ resolve_existing_config() {
 }
 
 managed_network_content() {
-  local name content="" loopback_mask private_gateway private_mask mode iface service_mask rootdir hostname loopback_ip service_ip fstab
+  local name content="" prefix_content="" loopback_mask private_gateway private_mask mode iface service_mask rootdir hostname loopback_ip service_ip fstab
   local saved_name saved_root saved_host saved_iface saved_service_ip saved_loopback_ip saved_fstab saved_mode saved_service_iface
-  local -A alias_indexes=()
+  local -A alias_indexes=() private_iface_seen=()
+  local -a cloned_ifaces=()
   saved_name=$JAIL_NAME
   saved_root=$JAIL_ROOT
   saved_host=$JAIL_HOSTNAME
@@ -650,14 +663,17 @@ managed_network_content() {
 
     case "$mode" in
       private-loopback)
-        if [ "$PRIVATE_IFACE" != "$LOOPBACK_IFACE" ] && [[ "$content" != *"ifconfig_${PRIVATE_IFACE}=\"inet ${private_gateway} netmask ${private_mask}\""* ]]; then
-          content="cloned_interfaces=\"\${cloned_interfaces:+\${cloned_interfaces} }${PRIVATE_IFACE}\""$'\n'"ifconfig_${PRIVATE_IFACE}=\"inet ${private_gateway} netmask ${private_mask}\""$'\n'"$content"
+        [ -n "$iface" ] || iface=$PRIVATE_IFACE
+        if [ "$iface" != "$LOOPBACK_IFACE" ] && [ -z "${private_iface_seen[$iface]:-}" ]; then
+          cloned_ifaces+=("$iface")
+          prefix_content+="ifconfig_${iface}=\"inet ${private_gateway} netmask ${private_mask}\""$'\n'
+          private_iface_seen[$iface]=1
         fi
-        if [ -z "${alias_indexes[$PRIVATE_IFACE]:-}" ]; then
-          alias_indexes[$PRIVATE_IFACE]=0
+        if [ -z "${alias_indexes[$iface]:-}" ]; then
+          alias_indexes[$iface]=0
         fi
-        content+="ifconfig_${PRIVATE_IFACE}_alias${alias_indexes[$PRIVATE_IFACE]}=\"inet ${service_ip} netmask ${private_mask}\""$'\n'
-        alias_indexes[$PRIVATE_IFACE]=$((alias_indexes[$PRIVATE_IFACE] + 1))
+        content+="ifconfig_${iface}_alias${alias_indexes[$iface]}=\"inet ${service_ip} netmask ${private_mask}\""$'\n'
+        alias_indexes[$iface]=$((alias_indexes[$iface] + 1))
         ;;
       interface-alias)
         [ -n "$iface" ] || die "missing service interface metadata for jail $name"
@@ -670,6 +686,11 @@ managed_network_content() {
         ;;
     esac
   done < <(managed_jail_records)
+
+  if [ ${#cloned_ifaces[@]} -gt 0 ]; then
+    prefix_content="cloned_interfaces=\"\${cloned_interfaces:+\${cloned_interfaces} }${cloned_ifaces[*]}\""$'\n'"${prefix_content}"
+  fi
+  content="${prefix_content}${content}"
 
   JAIL_NAME=$saved_name
   JAIL_ROOT=$saved_root
@@ -701,31 +722,90 @@ iface_has_ipv4() {
   ifconfig "$iface" 2>/dev/null | grep -Eq "inet ${ip}([[:space:]]|$)"
 }
 
+iface_has_ipv4_alias() {
+  local iface=$1 ip=$2
+  ifconfig "$iface" 2>/dev/null | awk -v ip="$ip" '
+    /^[[:space:]]*inet / {
+      has_ip = 0
+      has_alias = 0
+      for (i = 1; i <= NF; i++) {
+        if ($i == "inet" && $(i + 1) == ip) {
+          has_ip = 1
+        }
+        if ($i == "alias") {
+          has_alias = 1
+        }
+      }
+      if (has_ip && has_alias) {
+        found = 1
+        exit
+      }
+    }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+host_iface_for_ipv4() {
+  local ip=$1
+  ifconfig -a | awk -v ip="$ip" '
+    /^[[:alnum:]_][^:[:space:]]*:/ {
+      iface = $1
+      sub(":$", "", iface)
+      next
+    }
+    /^[[:space:]]*inet / {
+      for (i = 1; i <= NF; i++) {
+        if ($i == "inet" && $(i + 1) == ip) {
+          print iface
+          exit
+        }
+      }
+    }
+  '
+}
+
+assert_ip_not_configured_on_host() {
+  local ip=$1 role=$2 iface
+  [ -n "$ip" ] || return 0
+  iface=$(host_iface_for_ipv4 "$ip" || true)
+  if [ -n "$iface" ]; then
+    die "${role} IP is already configured on host interface ${iface}: ${ip}"
+  fi
+}
+
 ensure_private_iface_live() {
-  local private_gateway private_mask
+  local iface=${1:-$PRIVATE_IFACE} private_gateway private_mask
   private_gateway=$(cidr_first_host_ip "$SERVICE_SUBNET")
   private_mask=$(cidr_netmask_hex "$SERVICE_SUBNET")
-  if [ "$PRIVATE_IFACE" != "$LOOPBACK_IFACE" ]; then
-    if ! ifconfig "$PRIVATE_IFACE" >/dev/null 2>&1; then
-      run_cmd ifconfig "$PRIVATE_IFACE" create
+  if [ "$iface" != "$LOOPBACK_IFACE" ]; then
+    if ! ifconfig "$iface" >/dev/null 2>&1; then
+      run_cmd ifconfig "$iface" create
     fi
-    if ! iface_has_ipv4 "$PRIVATE_IFACE" "$private_gateway"; then
-      run_cmd ifconfig "$PRIVATE_IFACE" inet "$private_gateway" netmask "$private_mask"
+    if ! iface_has_ipv4 "$iface" "$private_gateway"; then
+      run_cmd ifconfig "$iface" inet "$private_gateway" netmask "$private_mask"
     fi
   fi
 }
 
 ensure_alias_live() {
   local iface=$1 ip=$2 mask=$3
-  if ! iface_has_ipv4 "$iface" "$ip"; then
-    run_cmd ifconfig "$iface" alias "$ip" netmask "$mask"
+  if iface_has_ipv4 "$iface" "$ip"; then
+    if iface_has_ipv4_alias "$iface" "$ip"; then
+      return 0
+    fi
+    die "refusing to manage ${ip} on ${iface}: address already exists on the host and is not an alias"
   fi
+  run_cmd ifconfig "$iface" alias "$ip" netmask "$mask"
 }
 
 remove_alias_live() {
   local iface=$1 ip=$2
-  if iface_has_ipv4 "$iface" "$ip"; then
+  if iface_has_ipv4_alias "$iface" "$ip"; then
     run_cmd ifconfig "$iface" -alias "$ip"
+    return 0
+  fi
+  if iface_has_ipv4 "$iface" "$ip"; then
+    warn "not removing ${ip} from ${iface}: address exists but is not an alias"
   fi
 }
 
@@ -737,9 +817,10 @@ ensure_runtime_network_for_jail() {
   ensure_alias_live "$LOOPBACK_IFACE" "$JAIL_LOOPBACK_IP" "$loopback_mask"
   case "$mode" in
     private-loopback)
-      ensure_private_iface_live
+      [ -n "$effective_service_iface" ] || effective_service_iface=$PRIVATE_IFACE
+      ensure_private_iface_live "$effective_service_iface"
       private_mask=$(cidr_netmask_hex "$SERVICE_SUBNET")
-      ensure_alias_live "$PRIVATE_IFACE" "$JAIL_SERVICE_IP" "$private_mask"
+      ensure_alias_live "$effective_service_iface" "$JAIL_SERVICE_IP" "$private_mask"
       ;;
     interface-alias)
       [ -n "$effective_service_iface" ] || die "interface-alias mode requires a service interface"
@@ -756,7 +837,8 @@ remove_runtime_network_for_jail() {
   remove_alias_live "$LOOPBACK_IFACE" "$JAIL_LOOPBACK_IP"
   case "$mode" in
     private-loopback)
-      remove_alias_live "$PRIVATE_IFACE" "$JAIL_SERVICE_IP"
+      [ -n "$effective_service_iface" ] || effective_service_iface=$PRIVATE_IFACE
+      remove_alias_live "$effective_service_iface" "$JAIL_SERVICE_IP"
       ;;
     interface-alias)
       [ -n "$effective_service_iface" ] || return 0
@@ -988,25 +1070,38 @@ download_and_extract_world() {
 }
 
 bootstrap_pkg_and_install() {
-  local mounted_here=0
+  local mounted_here=0 status=0 previous_exit_trap=
   [ "$BOOTSTRAP_PKG" = "1" ] || [ ${#PACKAGES[@]} -gt 0 ] || return 0
   if ! is_mountpoint "$JAIL_ROOT/dev" devfs; then
     run_cmd mount -t devfs devfs "$JAIL_ROOT/dev"
     mounted_here=1
+    if [ "$DRY_RUN" != "1" ]; then
+      previous_exit_trap=$(trap -p EXIT || true)
+      trap 'umount "'"$JAIL_ROOT"'"/dev" >/dev/null 2>&1 || true' EXIT
+    fi
   fi
-  if [ "$DRY_RUN" != "1" ] && [ "$mounted_here" = "1" ]; then
-    trap 'umount "$JAIL_ROOT/dev" >/dev/null 2>&1 || true' RETURN
-  fi
+
+  set +e
   run_cmd chroot "$JAIL_ROOT" /usr/bin/env ASSUME_ALWAYS_YES=yes /bin/sh -c 'cd /usr && make pkg-bootstrap-force'
-  if [ ${#PACKAGES[@]} -gt 0 ]; then
+  status=$?
+  if [ "$status" -eq 0 ] && [ ${#PACKAGES[@]} -gt 0 ]; then
     run_cmd chroot "$JAIL_ROOT" /usr/bin/env ASSUME_ALWAYS_YES=yes PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin /usr/local/sbin/pkg install -y "${PACKAGES[@]}"
+    status=$?
   fi
+  set -e
+
   if [ "$mounted_here" = "1" ]; then
     if [ "$DRY_RUN" != "1" ]; then
-      trap - RETURN
+      if [ -n "$previous_exit_trap" ]; then
+        eval "$previous_exit_trap"
+      else
+        trap - EXIT
+      fi
     fi
     run_cmd umount "$JAIL_ROOT/dev"
   fi
+
+  [ "$status" -eq 0 ] || return "$status"
 }
 
 running_jid() {
@@ -1025,6 +1120,7 @@ running_jid() {
 
 command_create() {
   [ -n "$JAIL_NAME" ] || die "create requires --name"
+  validate_jail_name "$JAIL_NAME"
   validate_managed_state
   NETWORK_MODE=$(normalize_network_mode "$NETWORK_MODE")
   if [ -n "$JAIL_INTERFACE" ]; then
@@ -1052,6 +1148,7 @@ command_create() {
   if ! ip_in_use "$JAIL_LOOPBACK_IP"; then
     USED_IPS+=("$JAIL_LOOPBACK_IP")
   fi
+  assert_ip_not_configured_on_host "$JAIL_LOOPBACK_IP" "loopback"
   case "$NETWORK_MODE" in
     private-loopback)
       if [ -z "$JAIL_SERVICE_IP" ]; then
@@ -1072,6 +1169,7 @@ command_create() {
       ;;
   esac
   [ "$JAIL_SERVICE_IP" != "$JAIL_LOOPBACK_IP" ] || die "service and loopback IPs must be different"
+  assert_ip_not_configured_on_host "$JAIL_SERVICE_IP" "service"
   ensure_jail_pfs
   download_and_extract_world
   run_cmd mkdir -p "$JAIL_ROOT/etc" "$JAIL_ROOT/dev" "$JAIL_ROOT/proc"
