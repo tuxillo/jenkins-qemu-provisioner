@@ -30,6 +30,7 @@ JAIL_FSTAB_PATH=${JAIL_FSTAB_PATH:-}
 JAIL_ROOT=${JAIL_ROOT:-}
 ARTIFACT_NAME=${ARTIFACT_NAME:-}
 BOOTSTRAP_PKG=${BOOTSTRAP_PKG:-0}
+DESTROY_YES=${DESTROY_YES:-0}
 
 declare -a PACKAGES=()
 declare -a RESOLVERS=()
@@ -81,6 +82,7 @@ Create options:
 
 Other command options:
   --name NAME                 Required for destroy, start, stop, and status
+  --yes                       Skip the interactive confirmation for destroy
 
 Examples:
   scripts/manage-dfly-jail.sh create --name web01 --bootstrap-pkg --packages "bash curl tmux"
@@ -1305,6 +1307,7 @@ command_destroy() {
   [ -n "$JAIL_NAME" ] || die "destroy requires --name"
   resolve_existing_config
   [ -n "$JAIL_ROOT" ] || die "no managed jail configuration found for $JAIL_NAME"
+  confirm_destroy
   jid=$(running_jid || true)
   if [ -n "$jid" ]; then
     run_cmd service jail stop "$JAIL_NAME"
@@ -1438,6 +1441,24 @@ parse_common_flags() {
 require_option_value() {
   local option=$1 argc=$2
   [ "$argc" -ge 2 ] || die "option ${option} requires a value"
+}
+
+confirm_destroy() {
+  local response
+  [ "$DESTROY_YES" = "1" ] && return 0
+  if [ ! -t 0 ]; then
+    die "destroy requires --yes when stdin is not a terminal"
+  fi
+  printf '[%s] destroy jail %s? [y/N] ' "$SCRIPT_NAME" "$JAIL_NAME" >&2
+  IFS= read -r response
+  case "$response" in
+    y|Y|yes|YES)
+      return 0
+      ;;
+    *)
+      die "destroy cancelled"
+      ;;
+  esac
 }
 
 parse_create_flags() {
@@ -1574,6 +1595,25 @@ parse_name_only_flags() {
   done
 }
 
+parse_destroy_flags() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name)
+        require_option_value "$1" $#
+        JAIL_NAME=$2
+        shift 2
+        ;;
+      --yes)
+        DESTROY_YES=1
+        shift
+        ;;
+      *)
+        die "unknown option: $1"
+        ;;
+    esac
+  done
+}
+
 main() {
   local command args
   [ $# -gt 0 ] || { usage; exit 1; }
@@ -1615,7 +1655,7 @@ main() {
       command_create
       ;;
     destroy)
-      parse_name_only_flags "$@"
+      parse_destroy_flags "$@"
       command_destroy
       ;;
     start)
