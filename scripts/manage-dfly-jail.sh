@@ -1372,46 +1372,61 @@ parse_common_flags() {
   done
 }
 
+require_option_value() {
+  local option=$1 argc=$2
+  [ "$argc" -ge 2 ] || die "option ${option} requires a value"
+}
+
 parse_create_flags() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --name)
+        require_option_value "$1" $#
         JAIL_NAME=$2
         shift 2
         ;;
       --hostname)
+        require_option_value "$1" $#
         JAIL_HOSTNAME=$2
         shift 2
         ;;
       --interface)
+        require_option_value "$1" $#
         JAIL_INTERFACE=$2
         shift 2
         ;;
       --network-mode)
+        require_option_value "$1" $#
         NETWORK_MODE=$2
         shift 2
         ;;
       --service-iface)
+        require_option_value "$1" $#
         SERVICE_IFACE=$2
         shift 2
         ;;
       --root-parent)
+        require_option_value "$1" $#
         ROOT_PARENT=$2
         shift 2
         ;;
       --private-iface)
+        require_option_value "$1" $#
         PRIVATE_IFACE=$2
         shift 2
         ;;
       --loopback-iface)
+        require_option_value "$1" $#
         LOOPBACK_IFACE=$2
         shift 2
         ;;
       --cache-dir)
+        require_option_value "$1" $#
         CACHE_DIR=$2
         shift 2
         ;;
       --cache-keep)
+        require_option_value "$1" $#
         CACHE_KEEP=$2
         shift 2
         ;;
@@ -1420,34 +1435,42 @@ parse_create_flags() {
         shift
         ;;
       --service-subnet)
+        require_option_value "$1" $#
         SERVICE_SUBNET=$2
         shift 2
         ;;
       --loopback-subnet)
+        require_option_value "$1" $#
         LOOPBACK_SUBNET=$2
         shift 2
         ;;
       --service-ip)
+        require_option_value "$1" $#
         JAIL_SERVICE_IP=$2
         shift 2
         ;;
       --loopback-ip)
+        require_option_value "$1" $#
         JAIL_LOOPBACK_IP=$2
         shift 2
         ;;
       --fstab-path)
+        require_option_value "$1" $#
         JAIL_FSTAB_PATH=$2
         shift 2
         ;;
       --artifact-name)
+        require_option_value "$1" $#
         ARTIFACT_NAME=$2
         shift 2
         ;;
       --release-index-url)
+        require_option_value "$1" $#
         RELEASE_INDEX_URL=$2
         shift 2
         ;;
       --resolver)
+        require_option_value "$1" $#
         RESOLVERS+=("$2")
         shift 2
         ;;
@@ -1456,10 +1479,12 @@ parse_create_flags() {
         shift
         ;;
       --package)
+        require_option_value "$1" $#
         PACKAGES+=("$2")
         shift 2
         ;;
       --packages)
+        require_option_value "$1" $#
         read -r -a more_packages <<<"$2"
         PACKAGES+=("${more_packages[@]}")
         shift 2
@@ -1475,6 +1500,7 @@ parse_name_only_flags() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --name)
+        require_option_value "$1" $#
         JAIL_NAME=$2
         shift 2
         ;;
