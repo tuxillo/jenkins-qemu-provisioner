@@ -597,6 +597,16 @@ managed_block_metadata() {
   ' "$RC_CONF_PATH"
 }
 
+managed_block_content() {
+  local tag=$1
+  [ -f "$RC_CONF_PATH" ] || return 0
+  awk -v begin="# BEGIN ${tag}" -v end="# END ${tag}" '
+    $0 == begin { in_block = 1; next }
+    $0 == end { in_block = 0; exit }
+    in_block { print }
+  ' "$RC_CONF_PATH"
+}
+
 service_iface_mask_hex() {
   local iface=$1 mask
   mask=$(ifconfig "$iface" 2>/dev/null | awk '/^[[:space:]]*inet / { for (i = 1; i <= NF; i++) if ($i == "netmask") { print $(i + 1); exit } }')
@@ -715,6 +725,7 @@ rebuild_managed_network_block() {
     remove_managed_blocks_for_name "$RC_CONF_PATH" network
   fi
   validate_managed_state
+  validate_managed_network_block
 }
 
 iface_has_ipv4() {
@@ -741,30 +752,36 @@ host_iface_for_ipv4() {
   '
 }
 
-managed_network_has_ip_on_iface() {
-  local iface=$1 ip=$2 line in_block=0
-  [ -f "$RC_CONF_PATH" ] || return 1
-  while IFS= read -r line || [ -n "$line" ]; do
-    case "$line" in
-      "# BEGIN $(network_tag)")
-        in_block=1
-        continue
+managed_jail_has_ip_on_iface() {
+  local expected_iface=$1 expected_ip=$2 name mode iface rootdir hostname loopback_ip service_ip fstab
+  while IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab; do
+    [ -n "$name" ] || continue
+    mode=$(normalize_network_mode "$mode")
+    if [ -n "$loopback_ip" ] && [ "$expected_iface" = "$LOOPBACK_IFACE" ] && [ "$expected_ip" = "$loopback_ip" ]; then
+      return 0
+    fi
+    case "$mode" in
+      private-loopback)
+        [ -n "$iface" ] || iface=$PRIVATE_IFACE
         ;;
-      "# END $(network_tag)")
-        in_block=0
-        continue
-        ;;
-    esac
-    [ "$in_block" = "1" ] || continue
-    case "$line" in
-      ifconfig_"${iface}"_alias*=*)
-        if [[ "$line" == *"inet ${ip} "* ]]; then
-          return 0
-        fi
+      interface-alias)
+        [ -n "$iface" ] || continue
         ;;
     esac
-  done < "$RC_CONF_PATH"
+    if [ -n "$service_ip" ] && [ "$expected_iface" = "$iface" ] && [ "$expected_ip" = "$service_ip" ]; then
+      return 0
+    fi
+  done < <(managed_jail_records)
   return 1
+}
+
+validate_managed_network_block() {
+  local expected actual
+  expected=$(managed_network_content)
+  actual=$(managed_block_content "$(network_tag)")
+  if [ "$expected" != "$actual" ]; then
+    die "manager-owned network block is out of sync with managed jail metadata; run rebuild-network"
+  fi
 }
 
 assert_ip_not_configured_on_host() {
@@ -798,10 +815,10 @@ ensure_alias_live() {
     if [ "$existing_iface" != "$iface" ]; then
       die "refusing to manage ${ip} on ${iface}: address is already configured on ${existing_iface}"
     fi
-    if managed_network_has_ip_on_iface "$iface" "$ip"; then
+    if managed_jail_has_ip_on_iface "$iface" "$ip"; then
       return 0
     fi
-    die "refusing to manage ${ip} on ${iface}: address exists but is not declared in the manager-owned network block"
+    die "refusing to manage ${ip} on ${iface}: address exists but is not declared in managed jail metadata"
   fi
   run_cmd ifconfig "$iface" alias "$ip" netmask "$mask"
 }
@@ -817,8 +834,8 @@ remove_alias_live() {
     warn "not removing ${ip} from ${iface}: address is configured on ${existing_iface}"
     return 0
   fi
-  if ! managed_network_has_ip_on_iface "$iface" "$ip"; then
-    warn "not removing ${ip} from ${iface}: address is not declared in the manager-owned network block"
+  if ! managed_jail_has_ip_on_iface "$iface" "$ip"; then
+    warn "not removing ${ip} from ${iface}: address is not declared in managed jail metadata"
     return 0
   fi
   if ! run_cmd ifconfig "$iface" -alias "$ip"; then
@@ -1339,6 +1356,7 @@ command_list() {
 
 command_verify() {
   validate_managed_state
+  validate_managed_network_block
   log "managed jail state is valid"
   local name mode iface rootdir hostname loopback_ip service_ip fstab
   while IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab; do
