@@ -795,7 +795,11 @@ host_iface_for_ipv4() {
 
 managed_jail_has_ip_on_iface() {
   local expected_iface=$1 expected_ip=$2 name mode iface rootdir hostname loopback_ip service_ip fstab
-  while IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab; do
+  local -a records=()
+  local record
+  mapfile -t records < <(managed_jail_records)
+  for record in "${records[@]}"; do
+    IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab <<<"$record"
     [ -n "$name" ] || continue
     mode=$(normalize_network_mode "$mode")
     if [ -n "$loopback_ip" ] && [ "$expected_iface" = "$LOOPBACK_IFACE" ] && [ "$expected_ip" = "$loopback_ip" ]; then
@@ -812,7 +816,7 @@ managed_jail_has_ip_on_iface() {
     if [ -n "$service_ip" ] && [ "$expected_iface" = "$iface" ] && [ "$expected_ip" = "$service_ip" ]; then
       return 0
     fi
-  done < <(managed_jail_records)
+  done
   return 1
 }
 
