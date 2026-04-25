@@ -320,8 +320,12 @@ replace_managed_block() {
   tmp=$(mktemp)
   [ -f "$file" ] || : > "$file"
   awk -v begin="# BEGIN ${tag}" -v end="# END ${tag}" '
-    $0 == begin { skip = 1; next }
-    $0 == end { skip = 0; next }
+    {
+      line = $0
+      sub(/[[:space:]]+$/, "", line)
+    }
+    line == begin { skip = 1; next }
+    line == end { skip = 0; next }
     !skip { print }
   ' "$file" > "$tmp"
   normalize_managed_file "$tmp" "$tag" "$content" > "${tmp}.new"
@@ -371,8 +375,12 @@ remove_managed_blocks_for_name() {
   tmp=$(mktemp)
   [ -f "$file" ] || return 0
   awk -v cbegin="# BEGIN ${current}" -v cend="# END ${current}" -v lbegin="# BEGIN ${legacy}" -v lend="# END ${legacy}" '
-    $0 == cbegin || $0 == lbegin { skip = 1; next }
-    $0 == cend || $0 == lend { skip = 0; next }
+    {
+      line = $0
+      sub(/[[:space:]]+$/, "", line)
+    }
+    line == cbegin || line == lbegin { skip = 1; next }
+    line == cend || line == lend { skip = 0; next }
     !skip { print }
   ' "$file" > "$tmp"
   if cmp -s "$file" "$tmp"; then
@@ -478,6 +486,7 @@ managed_jail_records() {
       fi
       in_block=1
       block_name=${line##*:}
+      block_name=${block_name%${block_name##*[![:space:]]}}
       network_mode=""
       service_iface=""
       rootdir=""
@@ -591,9 +600,13 @@ managed_block_metadata() {
   legacy=$(legacy_tag "$name")
   [ -f "$RC_CONF_PATH" ] || return 1
   awk -v cbegin="# BEGIN ${current}" -v cend="# END ${current}" -v lbegin="# BEGIN ${legacy}" -v lend="# END ${legacy}" -v key="# ${key}=" '
-    $0 == cbegin || $0 == lbegin { in_block = 1; next }
-    $0 == cend || $0 == lend { in_block = 0; next }
-    in_block && index($0, key) == 1 { print substr($0, length(key) + 1); exit }
+    {
+      line = $0
+      sub(/[[:space:]]+$/, "", line)
+    }
+    line == cbegin || line == lbegin { in_block = 1; next }
+    line == cend || line == lend { in_block = 0; next }
+    in_block && index(line, key) == 1 { print substr(line, length(key) + 1); exit }
   ' "$RC_CONF_PATH"
 }
 
@@ -601,10 +614,34 @@ managed_block_content() {
   local tag=$1
   [ -f "$RC_CONF_PATH" ] || return 0
   awk -v begin="# BEGIN ${tag}" -v end="# END ${tag}" '
-    $0 == begin { in_block = 1; next }
-    $0 == end { in_block = 0; exit }
-    in_block { print }
+    {
+      line = $0
+      sub(/[[:space:]]+$/, "", line)
+    }
+    line == begin {
+      if (seen++) {
+        exit 2
+      }
+      in_block = 1
+      next
+    }
+    line == end {
+      in_block = 0
+      exit
+    }
+    in_block { print line }
   ' "$RC_CONF_PATH"
+  case $? in
+    0)
+      return 0
+      ;;
+    2)
+      die "duplicate manager-owned block found for ${tag}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
 }
 
 service_iface_mask_hex() {
