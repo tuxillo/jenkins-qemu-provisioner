@@ -680,6 +680,8 @@ managed_network_content() {
   local saved_name saved_root saved_host saved_iface saved_service_ip saved_loopback_ip saved_fstab saved_mode saved_service_iface
   local -A alias_indexes=() private_iface_seen=()
   local -a cloned_ifaces=()
+  local -a records=()
+  local record
   saved_name=$JAIL_NAME
   saved_root=$JAIL_ROOT
   saved_host=$JAIL_HOSTNAME
@@ -693,7 +695,9 @@ managed_network_content() {
   private_mask=$(cidr_netmask_hex "$SERVICE_SUBNET")
   loopback_mask=$LOOPBACK_ALIAS_MASK
 
-  while IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab; do
+  mapfile -t records < <(managed_jail_records)
+  for record in "${records[@]}"; do
+    IFS=$'\t' read -r name mode iface rootdir hostname loopback_ip service_ip fstab <<<"$record"
     [ -n "$name" ] || continue
     mode=$(normalize_network_mode "$mode")
     if [ -z "$iface" ] && [ "$mode" = "private-loopback" ]; then
@@ -732,7 +736,7 @@ managed_network_content() {
         alias_indexes[$iface]=$((alias_indexes[$iface] + 1))
         ;;
     esac
-  done < <(managed_jail_records)
+  done
 
   if [ ${#cloned_ifaces[@]} -gt 0 ]; then
     prefix_content="cloned_interfaces=\"\${cloned_interfaces:+\${cloned_interfaces} }${cloned_ifaces[*]}\""$'\n'"${prefix_content}"
