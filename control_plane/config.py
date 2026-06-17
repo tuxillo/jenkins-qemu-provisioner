@@ -6,6 +6,13 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def _default_config_file(name: str) -> str:
+    path = Path(__file__).resolve().parent / name
+    if path.exists():
+        return str(path)
+    return str(path.with_name(f"{name}.example"))
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -37,10 +44,10 @@ class Settings(BaseSettings):
     node_agent_auth_token: str | None = Field(default=None)
 
     label_policies_file: str = Field(
-        default=str(Path(__file__).resolve().parent / "label_policies.json")
+        default_factory=lambda: _default_config_file("label_policies.json")
     )
     image_catalog_file: str = Field(
-        default=str(Path(__file__).resolve().parent / "image_catalog.json")
+        default_factory=lambda: _default_config_file("image_catalog.json")
     )
     guest_image_compat_mode: bool = Field(default=False)
 

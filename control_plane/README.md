@@ -10,6 +10,7 @@
 ## Docker Compose Development
 
 - Copy env template: `cp .env.example .env`
+- Copy policy templates: `cp control_plane/label_policies.json.example control_plane/label_policies.json && cp control_plane/image_catalog.json.example control_plane/image_catalog.json`
 - Build and start services: `docker compose up -d --build`
 - Verify Jenkins: `http://localhost:8080`
 - Verify control-plane health: `http://localhost:8000/healthz`
@@ -25,7 +26,7 @@ Notes:
 - Control-plane stores SQLite data in the `control_plane_data` volume at `/data/control_plane.db`.
 - UI is read-only and uses a server-embedded snapshot (no browser API polling).
 - Host capacity tracking separates physical totals from allocatable VM budgets used for scheduling.
-- Guest image selection is driven by exact-label policy in `control_plane/label_policies.json` and image catalog metadata in `control_plane/image_catalog.json`.
+- Guest image selection is driven by exact-label policy in `control_plane/label_policies.json` and image catalog metadata in `control_plane/image_catalog.json`; tracked `.json.example` files provide starter templates.
 - Label-policy keys are exact Jenkins queue labels, including full label expressions when Jenkins submits expressions verbatim.
 - Hosts advertise cached image inventory; scheduler prefers warm cached artifacts and may allow cold fetch only for catalog entries marked `remote_cache` + `prefer_warm`.
 
@@ -39,8 +40,8 @@ Notes:
 - `DATABASE_URL` (default `sqlite:///./control_plane.db`)
 - `NODE_AGENT_URL` (default `http://localhost:9000`)
 - `NODE_AGENT_AUTH_TOKEN` (optional)
-- `LABEL_POLICIES_FILE` (default bundled `control_plane/label_policies.json`)
-- `IMAGE_CATALOG_FILE` (default bundled `control_plane/image_catalog.json`)
+- `LABEL_POLICIES_FILE` (defaults to local `control_plane/label_policies.json` when present, otherwise the bundled `.example` template)
+- `IMAGE_CATALOG_FILE` (defaults to local `control_plane/image_catalog.json` when present, otherwise the bundled `.example` template)
 - `GUEST_IMAGE_COMPAT_MODE` (temporary legacy fallback for unmapped labels; default `false`)
 - `LOOP_INTERVAL_SEC`, `GC_INTERVAL_SEC`
 - `GLOBAL_MAX_VMS`, `LABEL_MAX_INFLIGHT`, `LABEL_BURST`

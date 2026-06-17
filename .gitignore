@@ -14,6 +14,8 @@ venv/
 # Local runtime data
 control_plane.db
 *.db
+control_plane/label_policies.json
+control_plane/image_catalog.json
 
 # Beads runtime logs
 .beads/daemon-error

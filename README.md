@@ -32,6 +32,8 @@ Lightweight control plane for running Jenkins builds on ephemeral QEMU VMs.
 
 ```bash
 cp .env.example .env
+cp control_plane/label_policies.json.example control_plane/label_policies.json
+cp control_plane/image_catalog.json.example control_plane/image_catalog.json
 ```
 
 2. Start Jenkins + control-plane:
@@ -55,6 +57,7 @@ UI note:
 
 Guest image policy note:
 - Control-plane resolves Jenkins labels through exact-label JSON policy in `control_plane/label_policies.json`.
+- The tracked `control_plane/label_policies.json.example` and `control_plane/image_catalog.json.example` files are starter templates; copy them to the non-tracked `.json` filenames for site-local config.
 - Policy keys must match the queued Jenkins label exactly, including full label expressions when Jenkins submits one.
 - The image catalog in `control_plane/image_catalog.json` defines the desired artifact, source kind (`manual_local` or `remote_cache`), and cache policy (`require_warm` or `prefer_warm`).
 - Node-agents advertise locally cached images, and the scheduler prefers warm caches before falling back to permitted cold fetches.

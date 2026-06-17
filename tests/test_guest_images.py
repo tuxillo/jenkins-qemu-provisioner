@@ -60,3 +60,26 @@ def test_guest_image_loaders_resolve_exact_label_policy(
     assert selection is not None
     assert selection.guest_image == "freebsd-14-stable"
     assert selection.base_image_id == "freebsd-14.1-20260301"
+
+
+def test_bundled_example_policy_and_catalog_are_valid(monkeypatch) -> None:
+    root = Path(__file__).resolve().parents[1]
+    label_policies = root / "control_plane" / "label_policies.json.example"
+    image_catalog = root / "control_plane" / "image_catalog.json.example"
+    monkeypatch.setattr(
+        "control_plane.guest_images.get_settings",
+        lambda: SimpleNamespace(
+            label_policies_file=str(label_policies),
+            image_catalog_file=str(image_catalog),
+        ),
+    )
+
+    policies = load_label_policies()
+    catalog = load_image_catalog()
+    selection = resolve_image_selection("dragonflybsd-nvmm large")
+
+    assert policies["linux-kvm large"].required_accel == "kvm"
+    assert catalog["default"].base_image_id == "default"
+    assert selection is not None
+    assert selection.profile == "large"
+    assert selection.required_accel == "nvmm"
