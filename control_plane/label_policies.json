@@ -4,6 +4,16 @@
     "profile": "small",
     "required_accel": "nvmm"
   },
+  "dragonflybsd-nvmm medium": {
+    "guest_image": "default",
+    "profile": "medium",
+    "required_accel": "nvmm"
+  },
+  "dragonflybsd-nvmm large": {
+    "guest_image": "default",
+    "profile": "large",
+    "required_accel": "nvmm"
+  },
   "linux-kvm || dragonflybsd-nvmm": {
     "guest_image": "default",
     "profile": "small"
