@@ -61,11 +61,12 @@ def build_jenkins_cloud_init_user_data(
     bootstrap_script = textwrap.dedent(
         """\
         #!/usr/bin/env bash
-        set -eu
+        set -euo pipefail
 
         ENV_PRIMARY=/usr/local/etc/jenkins-qemu/jenkins-agent.env
         ENV_FALLBACK=/etc/jenkins-agent.env
         BOOTSTRAP_LOG=/var/log/jenkins-agent-bootstrap.log
+        LOCK_DIR=/var/run/jenkins-agent-bootstrap.lock
 
         stage() {
           local name="$1"
@@ -88,6 +89,11 @@ def build_jenkins_cloud_init_user_data(
           stage "env_missing"
           echo "missing jenkins agent env file" >&2
           exit 1
+        fi
+
+        if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+          stage "duplicate_launch_skipped" "$LOCK_DIR"
+          exit 0
         fi
 
         AGENT_DIR=/opt/jenkins-agent
@@ -126,14 +132,32 @@ def build_jenkins_cloud_init_user_data(
         fi
         export TMPDIR="$TMP_DIR"
 
-        stage "agent_launch_start" "transport=$AGENT_TRANSPORT tmpdir=$TMP_DIR url=$JENKINS_URL"
-        exec java -Djava.io.tmpdir="$TMP_DIR" -jar "$AGENT_JAR" \
-          ${AGENT_TRANSPORT_FLAG:+$AGENT_TRANSPORT_FLAG} \
-          -url "$JENKINS_URL" \
-          -name "$JENKINS_NODE_NAME" \
-          -secret "$JENKINS_JNLP_SECRET" \
-          -workDir "$WORK_DIR" \
-          >> "$LOG_FILE" 2>&1
+        stage "agent_launch_start" "transport=$AGENT_TRANSPORT tmpdir=$TMP_DIR url=$JENKINS_URL noReconnect=true"
+        set +e
+        if [ -w /dev/console ]; then
+          java -Djava.io.tmpdir="$TMP_DIR" -jar "$AGENT_JAR" \
+            -noReconnect \
+            ${AGENT_TRANSPORT_FLAG:+$AGENT_TRANSPORT_FLAG} \
+            -url "$JENKINS_URL" \
+            -name "$JENKINS_NODE_NAME" \
+            -secret "$JENKINS_JNLP_SECRET" \
+            -workDir "$WORK_DIR" \
+            2>&1 | sed "s/$JENKINS_JNLP_SECRET/***/g" | tee -a "$LOG_FILE" > /dev/console
+          agent_rc=$?
+        else
+          java -Djava.io.tmpdir="$TMP_DIR" -jar "$AGENT_JAR" \
+            -noReconnect \
+            ${AGENT_TRANSPORT_FLAG:+$AGENT_TRANSPORT_FLAG} \
+            -url "$JENKINS_URL" \
+            -name "$JENKINS_NODE_NAME" \
+            -secret "$JENKINS_JNLP_SECRET" \
+            -workDir "$WORK_DIR" \
+            >> "$LOG_FILE" 2>&1
+          agent_rc=$?
+        fi
+        set -e
+        stage "agent_launch_exit" "rc=$agent_rc"
+        exit "$agent_rc"
         """
     )
     return textwrap.dedent(

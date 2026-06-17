@@ -91,6 +91,9 @@ def test_vm_debug_endpoint_exposes_serial_and_seed_artifacts() -> None:
     client = TestClient(app)
     vm_id = "vm-test-debug"
     p = _payload(vm_id)
+    p["cloud_init_user_data_b64"] = base64.b64encode(
+        b"#cloud-config\nJENKINS_JNLP_SECRET='super-secret'\n"
+    ).decode("ascii")
     put = client.put(f"/v1/vms/{vm_id}", json=p)
     assert put.status_code == 200
     serial_path = put.json()["serial_log_path"]
@@ -106,6 +109,8 @@ def test_vm_debug_endpoint_exposes_serial_and_seed_artifacts() -> None:
     assert "agent_download_ok" in (data["serial_tail"] or "")
     assert "qemu-system" in (data["launch_command"] or "")
     assert "JENKINS_JNLP_SECRET=***" in (data["jenkins_env"] or "")
+    assert "JENKINS_JNLP_SECRET=***" in (data["user_data"] or "")
+    assert "super-secret" not in (data["user_data"] or "")
 
 
 def test_capacity_endpoint_reports_allocatable_pool(monkeypatch) -> None:

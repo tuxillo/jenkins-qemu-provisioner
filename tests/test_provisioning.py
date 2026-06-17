@@ -89,6 +89,11 @@ def test_cloud_init_user_data_contains_inbound_bootstrap_script():
     assert " -lc, " not in user_data
     assert 'echo "$line" | tee -a "$BOOTSTRAP_LOG"' in user_data
     assert "-webSocket" in user_data
+    assert "-noReconnect" in user_data
+    assert "duplicate_launch_skipped" in user_data
+    assert 'sed "s/$JENKINS_JNLP_SECRET/***/g"' in user_data
+    assert 'tee -a "$LOG_FILE" > /dev/console' in user_data
+    assert "noReconnect=true" in user_data
     assert '-Djava.io.tmpdir="$TMP_DIR"' in user_data
     assert "printf '%s" not in user_data
 

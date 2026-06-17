@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -55,6 +56,16 @@ def _sanitize_env_text(text: str | None) -> str | None:
         else:
             out.append(line)
     return "\n".join(out)
+
+
+def _sanitize_user_data_text(text: str | None) -> str | None:
+    if text is None:
+        return None
+    return re.sub(
+        r"(JENKINS_JNLP_SECRET=)(?:'[^']*'|\"[^\"]*\"|\S+)",
+        r"\1***",
+        text,
+    )
 
 
 def _report_vm_status(
@@ -315,7 +326,7 @@ def vm_debug(vm_id: str, tail: int = Query(default=120, ge=10, le=2000)) -> dict
         },
         "launch_command": _read_text(launch_cmd_path, limit=16000),
         "serial_tail": _tail_text(serial_log_path, line_count=tail),
-        "user_data": _read_text(user_data_path, limit=16000),
+        "user_data": _sanitize_user_data_text(_read_text(user_data_path, limit=16000)),
         "jenkins_env": _sanitize_env_text(_read_text(env_path, limit=4000)),
     }
 
