@@ -188,6 +188,51 @@ def test_scaler_launches_exact_dragonfly_large_label_policy(monkeypatch):
     assert calls[0]["image_selection"].required_accel == "nvmm"
 
 
+def test_scaler_launches_exact_linux_kvm_large_label_policy(monkeypatch):
+    now = datetime.now(UTC).replace(tzinfo=None)
+    db = SessionLocal()
+    db.add(
+        Host(
+            host_id="linux-kvm-host",
+            enabled=True,
+            cpu_total=16,
+            cpu_allocatable=16,
+            cpu_free=16,
+            ram_total_mb=32768,
+            ram_allocatable_mb=32768,
+            ram_free_mb=32768,
+            io_pressure=0.1,
+            last_seen=now,
+            os_family="linux",
+            os_flavor="linux",
+            selected_accel="kvm",
+            supported_accels='["kvm","tcg"]',
+            available_images_json=_available_images_json(),
+        )
+    )
+    db.commit()
+    db.close()
+
+    calls = []
+
+    def fake_provision_one(**kwargs):
+        calls.append(kwargs)
+        return "lease-1"
+
+    monkeypatch.setattr(scaler, "provision_one", fake_provision_one)
+
+    scaler.scale_once(
+        cast(Any, FakeJenkins({"linux-kvm large": 1})),
+        lambda _host_id: object(),
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["label"] == "linux-kvm large"
+    assert calls[0]["host_id"] == "linux-kvm-host"
+    assert calls[0]["image_selection"].profile == "large"
+    assert calls[0]["image_selection"].required_accel == "kvm"
+
+
 def test_scaler_respects_allocatable_budget_during_same_tick_burst(monkeypatch):
     now = datetime.now(UTC).replace(tzinfo=None)
     db = SessionLocal()
